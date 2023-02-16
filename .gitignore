@@ -124,3 +124,5 @@ dmypy.json
 .pyre/
 
 systems/samples_mass_spring/
+
+results/sid_results/
