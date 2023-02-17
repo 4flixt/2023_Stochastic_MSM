@@ -1,6 +1,19 @@
 import matplotlib as mpl
 
+
+# In Latex, determine text and column width with:
+#
+# \usepackage{layouts}
+# ...
+# The column width is: \printinunitsof{in}\prntlen{\columnwidth}. 
+# The text width is: \printinunitsof{in}\prntlen{\textwidth} 
+
+textwidth = 7.00 # in inches
+columnwidth = 3.400 # in inches
+golden_ratio = 1.618
+
 fontsize = 10
+
 mpl.rcParams.update({
     'lines.linewidth':1,
     'font.size': fontsize,
@@ -11,7 +24,7 @@ mpl.rcParams.update({
     'font.serif': [],
     'axes.titlepad':  10,
     'axes.labelsize': 'medium',
-    'figure.figsize': (7.15, 4),
+    'figure.figsize': (textwidth, textwidth/golden_ratio),
     'axes.grid': False,
     'lines.markersize': 5,
     'text.usetex': True,
@@ -34,5 +47,5 @@ mpl.rcParams.update({
     'pgf.preamble': tex_preamble,
 })
 
-color = mpl.rcParams['axes.prop_cycle'].by_key()['color']
+colors = mpl.rcParams['axes.prop_cycle'].by_key()['color']
 boxprops = dict(boxstyle='round', facecolor='white', alpha=0.5, pad = .4)
