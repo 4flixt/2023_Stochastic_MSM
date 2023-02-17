@@ -59,3 +59,31 @@ def plot_cov_as_ellipse(mean_x, mean_y, cov, ax, n_std=3.0, facecolor='none', **
 
     ellipse.set_transform(transf + ax.transData)
     return ax.add_patch(ellipse)
+
+
+def print_percent_done(current, total, metric=None, metric_name = '', bar_len=50, title='Please wait'):
+    '''
+    Simple progress bar. Optionally prints some metric.
+
+    Args:
+        current (int): Current iteration
+        total (int): Total number of iterations
+        metric (float, optional): Current value of metric
+        metric_name (str, optional): Name of metric
+        bar_len (int, optional): Length of the progress bar
+    '''
+    percent_done = (current+1)/total*100
+    percent_done = round(percent_done, 1)
+
+    done = round(percent_done/(100/bar_len))
+    togo = bar_len-done
+
+    done_str = '█'*int(done)
+    togo_str = '░'*int(togo)
+
+    print_msg = f'\t⏳{title}: [{done_str}{togo_str}] {percent_done}% done'
+
+    if metric is not None:
+        print_msg += f' - {metric_name}: {metric:.4f}'
+
+    print(print_msg, end='\r')
