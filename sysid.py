@@ -12,6 +12,7 @@ from enum import Enum, auto
 
 import system
 import bayli
+import helper
 # %%
 class SystemType(Enum):
     TRIPLE_MASS_SPRING = auto()
@@ -165,9 +166,16 @@ class DataGenerator:
 
         self.u_fun  = u_fun
         self.setup = setup
-        self.sim_results = [
-            get_sys().simulate(self.u_fun, setup.L) for _ in range(setup.n_samples)
-            ]
+        self.sim_results = []
+
+        for k in range(setup.n_samples):
+            sys = get_sys()
+            self.sim_results.append(sys.simulate(u_fun, setup.L))
+            helper.print_percent_done(k, setup.n_samples, title='Sampling data...')
+
+        # self.sim_results = [
+        #     get_sys().simulate(self.u_fun, setup.L) for _ in range(setup.n_samples)
+        #     ]
 
     def get_narx_io(self, **kwargs):
         narx_in = []
