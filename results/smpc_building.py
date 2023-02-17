@@ -31,12 +31,12 @@ with open(load_name, "rb") as f:
 
 # %%
 
-ms_mpc_settings = smpc.MultiStepMPCSettings(
+ms_mpc_settings = smpc.base.SMPCSettings(
     prob_chance_cons=.999,
     with_cov=True,
 )
 
-ms_mpc = smpc.MultiStepMPC(msm, ms_mpc_settings)
+ms_mpc = smpc.MultiStepSMPC(msm, ms_mpc_settings)
 
 ms_mpc.set_objective(
     Q    = 0*np.eye(msm.n_y),
@@ -58,6 +58,7 @@ ms_mpc.lb_opt_x['u_pred',:] = np.array([-6, -6, -6, -6, 10])
 ms_mpc.ub_opt_x['u_pred',:] = np.array([6, 6, 6, 6, 10])
 
 # %%
+
 np.random.seed(99)
 
 x0 = np.array([24, 20, 20, 20, 10]).reshape(-1,1)
@@ -71,45 +72,56 @@ sys_generator = sid.SystemGenerator(
     )
 
 sys = sys_generator()
-random_input = sid.RandomInput(n_u=5, u_max = 0)
+u_const = np.array([0, 0, 0, 0, 10]).reshape(-1,1)
+random_input = sid.RandomInput(
+    n_u = 5, 
+    u_lb = u_const,
+    u_ub = u_const,
+    u0 = u_const,
+    )
 
 # Generate an initial sequence of measurements
 sys.simulate(random_input, 3)
 
 
 # %%
-
+# Solve MPC problem once and investigate the predictions
 y_list = cas.vertsplit(sys.y[-msm.data_setup.T_ini:])
 u_list = cas.vertsplit(sys.u[-msm.data_setup.T_ini:])
 
 ms_mpc.make_step(y_list, u_list)
-opt_x_num = ms_mpc.opt_x_num
-opt_p_num = ms_mpc.opt_p_num
-opt_aux_num = ms_mpc.opt_aux_num
+
+# %% 
+
+
+
 
 # %%
-opt_y_pred = cas.horzcat(*opt_x_num['y_pred']).T.full()
-opt_y_std = np.sqrt(np.diag(opt_aux_num['Sigma_y_pred'].full())).reshape(-1, ssm.n_y)
-opt_y_set = cas.horzcat(*opt_p_num['y_set']).T.full()
-opt_u_pred = cas.horzcat(*opt_x_num['u_pred']).T.full()
-opt_y_past = cas.horzcat(*opt_p_num['y_past']).T.full()
-opt_u_past = cas.horzcat(*opt_p_num['u_past']).T.full()
-fig, ax = plt.subplots(2,1)
-meas_lines = ax[0].plot(np.arange(msm.data_setup.N), opt_y_pred)
+
+t_past = np.arange(-msm.data_setup.T_ini,0)
+t_pred = np.arange(msm.data_setup.N)
+
+fig, ax = plt.subplots(2,1, sharex=True)
+
+meas_lines = ax[0].plot(t_pred, ms_mpc.res_y_pred)
+
 ax[0].set_prop_cycle(None)
 for k in range(msm.n_y):
-    ax[0].fill_between(np.arange(msm.data_setup.N), 
-                       opt_y_pred[:,k]+ms_mpc.cp*opt_y_std[:,k], 
-                       opt_y_pred[:,k]-ms_mpc.cp*opt_y_std[:,k], 
+    ax[0].fill_between(t_pred, 
+                       ms_mpc.res_y_pred[:,k]+ms_mpc.cp*ms_mpc.cp*ms_mpc.res_y_std[:,k], 
+                       ms_mpc.res_y_pred[:,k]-ms_mpc.cp*ms_mpc.cp*ms_mpc.res_y_std[:,k], 
                        alpha=.2)
+    
 ax[0].set_prop_cycle(None)
-ax[0].plot(np.arange(-msm.data_setup.T_ini,0), opt_y_past, '-x')
+ax[0].plot(t_past, ms_mpc.res_y_past, '-x')
 ax[0].axhline(18, color='k', linestyle='--')
 ax[0].axvline(0, color='k', linestyle='-')
 ax[0].text(-2, 18.2, '$\\leftarrow$ past')
 ax[0].text(.5, 18.2, 'pred. $\\rightarrow$')
 
-input_lines = ax[1].step(np.arange(msm.data_setup.N),opt_u_pred[:,:4], where='post')
+input_lines = ax[1].step(t_pred[:-1],ms_mpc.res_u_pred[:-1,:4], where='post')
+ax[1].set_prop_cycle(None)
+ax[1].step(t_past,ms_mpc.res_u_past[:,], '-x', where='post')
 
 ax[0].legend(meas_lines, ['rooms 1', 'rooms 2', 'rooms 3', 'rooms 4'], ncol=4)
 ax[0].set_ylabel('temp. [°C]')
@@ -140,10 +152,9 @@ plt.show(block=True)
 
 # %%
 fig, ax = plt.subplots(1,1, figsize=(4,4))
-opt_y_pred = cas.horzcat(*opt_x_num['y_pred']).T.full()
 
 ax.plot(sys.y[:,1], sys.y[:,0], label='y(t)')
-ax.plot(opt_y_pred[:,1], opt_y_pred[:,0], label='y_pred(t)')
+ax.plot(ms_mpc.res_y_pred[:,1], ms_mpc.res_y_pred[:,0], label='y_pred(t)')
 
 cons_1 = np.linspace(17, 20, 5)
 ax.plot(cons_1, cons_1+1, color='k', linestyle='--', label='constraint')
@@ -155,8 +166,8 @@ ax.set_xlim(17.5, 19.5)
 
 cov0 = ms_mpc.opt_aux_num['Sigma_y_pred'][:2,:2].full()
 covN = ms_mpc.opt_aux_num['Sigma_y_pred'][-4:-2,-4:-2].full()
-e1=helper.plot_cov_as_ellipse(opt_y_pred[0,1], opt_y_pred[0,0], cov0, ax=ax, n_std=ms_mpc.cp, edgecolor=colors[0], facecolor=colors[0], alpha=0.2)
-e2=helper.plot_cov_as_ellipse(opt_y_pred[-1,1], opt_y_pred[-1,0], covN, ax=ax, n_std=ms_mpc.cp, edgecolor=colors[1], facecolor=colors[1], alpha=0.2)
+e1=helper.plot_cov_as_ellipse(ms_mpc.res_y_pred[0,1], ms_mpc.res_y_pred[0,0], cov0, ax=ax, n_std=ms_mpc.cp, edgecolor=colors[0], facecolor=colors[0], alpha=0.2)
+e2=helper.plot_cov_as_ellipse(ms_mpc.res_y_pred[-1,1], ms_mpc.res_y_pred[-1,0], covN, ax=ax, n_std=ms_mpc.cp, edgecolor=colors[1], facecolor=colors[1], alpha=0.2)
 e1.set_label('covariance at t=0')
 e2.set_label('covariance at t=N')
 ax.legend()
