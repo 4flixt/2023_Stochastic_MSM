@@ -107,7 +107,7 @@ class MultiStepSMPC(base.SMPCBase):
         self.ub_opt_x = opt_x(np.inf)
 
         nlp = {'x': opt_x, 'p': opt_p, 'f': obj, 'g': self.cons.cons}
-        self.solver = cas.nlpsol('solver', 'ipopt', nlp)
+        self.solver = cas.nlpsol('solver', 'ipopt', nlp, self.settings.nlp_opts)
 
         opt_aux_expr = ct.struct_SX([
             ct.entry('Sigma_y_pred', expr=Sigma_y_pred),
@@ -124,8 +124,6 @@ class MultiStepSMPC(base.SMPCBase):
         self.flags.SETUP_NLP = True
 
     def __call__(self, t: float, x: np.ndarray):
-        if not self.flags.SETUP_NLP:
-            raise ValueError('NLP not setup')
         if not self.flags.READ_FROM_SYSTEM:
             raise ValueError('System not set')
 

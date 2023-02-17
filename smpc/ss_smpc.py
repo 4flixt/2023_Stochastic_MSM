@@ -55,7 +55,6 @@ class StateSpaceSMPC(base.SMPCBase):
         """
         stage_cons_fun = cas.Function('stage_cons_fun', [self._y_stage], [self._stage_cons.cons])
 
-
         self.cons = base.ConstraintHandler()
         self.chance_cons = base.ConstraintHandler()
 
@@ -135,7 +134,7 @@ class StateSpaceSMPC(base.SMPCBase):
         self.ub_opt_x = opt_x(np.inf)
 
         nlp = {'x': opt_x, 'p': opt_p, 'f': obj, 'g': self.cons.cons}
-        self.solver = cas.nlpsol('solver', 'ipopt', nlp)
+        self.solver = cas.nlpsol('solver', 'ipopt', nlp, self.settings.nlp_opts)
 
         opt_aux_expr = ct.struct_SX([
             ct.entry('Sigma_y_pred', expr=Sigma_y_pred),
@@ -149,9 +148,11 @@ class StateSpaceSMPC(base.SMPCBase):
         self.opt_p_num = opt_p(0)
         self.opt_x_num = opt_x(0)
 
+        self.flags.SETUP_NLP = True
+
 
     def __call__(self, t: float, x: np.ndarray):
-        if self.system == None:
+        if not self.flags.READ_FROM_SYSTEM: 
             raise ValueError('System not set')
         if self.system.y.shape[0] < self.sid_model.data_setup.T_ini:
             u_opt = np.zeros((self.sid_model.n_u, 1))

@@ -9,7 +9,7 @@ import casadi as cas
 import casadi.tools as ct
 from typing import Union, List, Dict, Tuple, Optional, Callable
 from abc import ABC
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 import pdb
 
@@ -28,6 +28,7 @@ def normal_cdf(x, mu, sigma):
 class SMPCSettings:
     prob_chance_cons: float
     with_cov: bool = True
+    nlp_opts: Dict = field(default_factory=dict)
 
     def __post_init__(self):
         """
@@ -39,6 +40,11 @@ class SMPCSettings:
 
         # Check that with_cov is a bool 
         assert isinstance(self.with_cov, bool), "with_cov must be a bool"
+
+    def surpress_ipopt_output(self):
+        self.nlp_opts.update({
+            'ipopt.print_level':0, 'ipopt.sb': 'yes', 'print_time':0
+        })
 
 @dataclass
 class SMPCFlags:
@@ -175,6 +181,9 @@ class SMPCBase:
     def make_step(self, y_past: List[np.ndarray], u_past: List[np.ndarray]):
         """ 
         """
+        if not self.flags.SETUP_NLP:
+            raise ValueError("NLP not setup")
+
         self.opt_p_num['y_past'] = y_past
         self.opt_p_num['u_past'] = u_past
 
