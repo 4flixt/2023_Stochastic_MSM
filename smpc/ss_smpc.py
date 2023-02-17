@@ -65,7 +65,7 @@ class StateSpaceSMPC(base.SMPCBase):
         ])
         opt_p = ct.struct_symSX([
             ct.entry("y_past", shape=self.sid_model.n_y, repeat=self.sid_model.data_setup.T_ini),
-            ct.entry("u_past", shape=self.sid_model.n_u, repeat=self.sid_model.data_setup.T_ini-1),
+            ct.entry("u_past", shape=self.sid_model.n_u, repeat=self.sid_model.data_setup.T_ini),
             ct.entry("y_set", shape=self.sid_model.n_y, repeat=self.sid_model.data_setup.N),
         ])
 
