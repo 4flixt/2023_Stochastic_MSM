@@ -39,7 +39,7 @@ class MultiStepSMPC(base.SMPCBase):
     def setup(self):
         """ 
         """
-        stage_cons_fun = cas.Function('stage_cons_fun', [self._y_stage], [self._stage_cons.cons])
+        self.stage_cons_fun = cas.Function('stage_cons_fun', [self._y_stage], [self._stage_cons.cons])
 
 
         self.cons = base.ConstraintHandler()
@@ -67,7 +67,7 @@ class MultiStepSMPC(base.SMPCBase):
         self.cons.add_cons(sys_cons, 0, 0)
 
         for k in range(1, self.sid_model.data_setup.N):
-            cons_k = stage_cons_fun(opt_x['y_pred', k])
+            cons_k = self.stage_cons_fun(opt_x['y_pred', k])
             self.chance_cons.add_cons(cons_k, cons_ub=self._stage_cons.cons_ub, cons_lb=None)
 
         H = cas.jacobian(self.chance_cons.cons, y_pred)

@@ -19,6 +19,7 @@ import importlib
 import functools
 import time
 import random
+import copy
 
 sys.path.append(os.path.join('..'))
 sys.path.append(os.path.join('..', 'plots'))
@@ -26,6 +27,7 @@ sys.path.append(os.path.join('..', 'plots'))
 import smpc
 import sysid as sid
 import helper
+import system
 import config_mpl
 importlib.reload(config_mpl)
 importlib.reload(smpc)
@@ -82,9 +84,8 @@ def get_system_for_case_study(
         t_0_rooms = np.array([23,19,19,19]), 
         t_ambient = 10, 
         link_controller: Optional[Union[smpc.StateSpaceSMPC, smpc.MultiStepSMPC]] = None,
-        ):
-    # Seed for deterministic initial sequence of process / measurement noise
-    np.random.seed(99)
+        init_from_reference_sys: Optional[system.System] = None,
+        ) -> system.System:
     
     x0 = np.concatenate((
         np.atleast_2d(t_0_rooms).reshape(-1,1),
@@ -101,18 +102,22 @@ def get_system_for_case_study(
 
     sys = sys_generator()
 
-    u_const = np.array([0,0,0,0,10]).reshape(-1,1) 
-    random_input = sid.RandomInput(
-        n_u=5, 
-        u_lb = u_const,
-        u_ub = u_const,
-        u0= u_const,
-        )
+    # Generate an initial sequence of measurements or use the reference system as initial state
+    if init_from_reference_sys is None:
+        u_const = np.array([0,0,0,0,10]).reshape(-1,1) 
+        random_input = sid.RandomInput(
+            n_u=5, 
+            u_lb = u_const,
+            u_ub = u_const,
+            u0= u_const,
+            )
 
-    # Generate an initial sequence of measurements
-    sys.simulate(random_input, 3)
+        # Generate an initial sequence of measurements
+        sys.simulate(random_input, 3)
+    else:
+        for attr in ['_x', '_u', '_d', '_y', 't_now', '_time', 'x0']:
+            setattr(sys, attr, copy.copy(getattr(init_from_reference_sys, attr)))
 
-    np.random.seed(int(random.random()*1e6))
 
     if link_controller is not None:
         link_controller.read_from(sys)
@@ -122,6 +127,7 @@ def get_system_for_case_study(
 def sample_open_loop_prediction(
         controller: Union[smpc.StateSpaceSMPC, smpc.MultiStepSMPC],
         sid_res,
+        reference_sys: system.System,
         n_samples: int = 50,
     ) -> sid.DataGenerator :
 
@@ -132,9 +138,13 @@ def sample_open_loop_prediction(
         T_ini=0,
         n_samples = n_samples,
     )
+    
+    np.random.seed(99)
 
     data_gen = sid.DataGenerator(
-        get_sys = functools.partial(get_system_for_case_study, sid_res['sigma_x'], sid_res['sigma_y']),
+        get_sys = functools.partial(get_system_for_case_study, 
+                                    sid_res['sigma_x'], sid_res['sigma_y'],
+                                    init_from_reference_sys=reference_sys),
         setup = data_gen_setup,
         u_fun = open_loop_pred_input,
     )
@@ -144,6 +154,7 @@ def sample_open_loop_prediction(
 def sample_closed_loop(
         controller: Union[smpc.StateSpaceSMPC, smpc.MultiStepSMPC],
         sid_res,
+        reference_sys: system.System,
         n_samples: int = 10,
         N_horizon: int = 50,
     ) -> sid.DataGenerator :
@@ -154,8 +165,14 @@ def sample_closed_loop(
         n_samples = n_samples,
     )
 
+    np.random.seed(99)
+
     data_gen = sid.DataGenerator(
-        get_sys = functools.partial(get_system_for_case_study, sid_res['sigma_x'], sid_res['sigma_y'], link_controller=controller),
+        get_sys = functools.partial(
+            get_system_for_case_study, 
+            sid_res['sigma_x'], sid_res['sigma_y'], 
+            link_controller=controller,
+            init_from_reference_sys=reference_sys),
         setup = data_gen_setup,
         u_fun = controller,
     )
@@ -280,7 +297,7 @@ def plot_closed_loop_cons_detail(
         controller: Union[smpc.StateSpaceSMPC, smpc.MultiStepSMPC],
         fig_ax: Optional[Tuple[plt.figure, plt.axis]] = None,
         with_annotations: bool = True
-        )-> Tuple[plt.figure, plt.axis]:
+        )-> Tuple[plt.figure, plt.axis, Dict[str, plt.Line2D]]:
     
     if fig_ax is None:
         fig, ax = plt.subplots(1,1, figsize=(config_mpl.columnwidth, config_mpl.columnwidth))
@@ -288,10 +305,12 @@ def plot_closed_loop_cons_detail(
         fig, ax = fig_ax
 
 
-    for sim_res_k in closed_loop_ms.sim_results:
-        ax.plot(sim_res_k.y[:,1], sim_res_k.y[:,0],color=config_mpl.colors[0], alpha=.1)
-    ax.plot([], [], color=config_mpl.colors[0], label='y(t) (samples)', alpha=.1)
-    ax.plot(controller.res_y_pred[:,1], controller.res_y_pred[:,0], color=config_mpl.colors[1], label='y_pred(t)')
+    lines = {}
+    lines['y_samples'] = []
+    for sim_res_k in closed_loop_res.sim_results:
+        lines['y_samples'].append(ax.plot(sim_res_k.y[:,1], sim_res_k.y[:,0],color=config_mpl.colors[0], alpha=.1)[0])
+    ax.plot([], [], color=config_mpl.colors[0], label=r'$y(t)$', alpha=.1)
+    lines['y_pred'] = ax.plot(controller.res_y_pred[:,1], controller.res_y_pred[:,0], color=config_mpl.colors[1], label=r'$y_{\text{pred}}(t)$')
 
     cons_1 = np.linspace(17, 20, 5)
     ax.plot(cons_1, cons_1+1, color='k', linestyle='--', label='constraint')
@@ -306,8 +325,11 @@ def plot_closed_loop_cons_detail(
     e1=helper.plot_cov_as_ellipse(controller.res_y_pred[0,1], controller.res_y_pred[0,0], cov0,
         ax=ax, n_std=controller.cp, edgecolor=config_mpl.colors[1], facecolor=config_mpl.colors[1], alpha=0.3
         )
-    ax.set_ylim(19, 21)
-    ax.set_xlim(17.5, 19.5)
+    # ax.set_ylim(19, 21)
+    # ax.set_xlim(17.5, 19.5)
+
+    lines['cov0'] = e1
+    lines['covN'] = e2
 
     if with_annotations:
         e1.set_label('covariance at t=0')
@@ -316,7 +338,7 @@ def plot_closed_loop_cons_detail(
         ax.set_ylabel('T1 [°C]')
         ax.legend()
 
-    return fig, ax
+    return fig, ax, lines
 
 # %% [markdown]
 """
@@ -337,7 +359,11 @@ if __name__ == '__main__':
 
     ms_smpc = setup_controller(sid_res['msm'], smpc_settings)
 
-    test_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'])
+    # Reference system is simulated with random initial sequence.
+    # This random initial sequence can be transfereed to the test system
+    ref_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'])    
+
+    test_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'], init_from_reference_sys=ref_sys)
 
 
     # %%
@@ -352,17 +378,33 @@ if __name__ == '__main__':
     """
     Sample the real system with this open-loop prediction
     """
-    open_loop_pred_samples_ms = sample_open_loop_prediction(ms_smpc, sid_res, n_samples = 50)
+    open_loop_pred_samples_ms = sample_open_loop_prediction(ms_smpc, sid_res, n_samples = 50, reference_sys=ref_sys)
 
     _ = plot_open_loop_prediction_with_samples(ms_smpc, sid_res['msm'], open_loop_pred_samples_ms)
+
 
     # %% [markdown]
     """
     ## Closed-loop simulation
+
+    Sample and save results. Alternatively, load the saved results.
     """
-    closed_loop_ms = sample_closed_loop(ms_smpc, sid_res, n_samples = 10, N_horizon=50)
+    savepath = os.path.join('smpc_results')
+    savename = 'ms_smpc_closed_loop_results_with_cov.pkl'
 
+    if True:
+        print('Sampling closed-loop results... (this may take a while)')
+        closed_loop_ms = sample_closed_loop(ms_smpc, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
 
+        with open(os.path.join(savepath, savename), 'wb') as f:
+            pickle.dump(closed_loop_ms, f)
+    elif os.path.exists(os.path.join(savepath, savename)):
+        print('Loading closed-loop results from file... make sure no settings have changed!')
+        with open(os.path.join(savepath, savename), 'rb') as f:
+            closed_loop_ms = pickle.load(f)
+    else:
+        prnt('No closed-loop results found. Please run the sampling first.')
+    
     # %%
 
     _ = plot_closed_loop_trajectory(closed_loop_ms)
@@ -386,7 +428,7 @@ if __name__ == '__main__':
 
     ss_smpc = setup_controller(sid_res['ssm'], smpc_settings)
 
-    test_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'])
+    test_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'], init_from_reference_sys=ref_sys)
 
     # %%
     ss_smpc.read_from(test_sys)
@@ -400,7 +442,7 @@ if __name__ == '__main__':
     """
     Sample the real system with this open-loop prediction
     """
-    _ = open_loop_pred_samples_ss = sample_open_loop_prediction(ss_smpc, sid_res, n_samples = 50)
+    _ = open_loop_pred_samples_ss = sample_open_loop_prediction(ss_smpc, sid_res, n_samples = 50, reference_sys=ref_sys)
 
     _ = plot_open_loop_prediction_with_samples(ss_smpc, sid_res['ssm'], open_loop_pred_samples_ss)
 
@@ -408,13 +450,25 @@ if __name__ == '__main__':
     """
     ## Closed-loop simulation
     """
-    closed_loop_ss = sample_closed_loop(ss_smpc, sid_res, n_samples = 10, N_horizon=50)
+    savepath = os.path.join('smpc_results')
+    savename = 'ss_smpc_closed_loop_results_with_cov.pkl'
 
+    if True:
+        print('Sampling closed-loop results... (this may take a while)')
+        closed_loop_ss = sample_closed_loop(ss_smpc, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
 
+        with open(os.path.join(savepath, savename), 'wb') as f:
+            pickle.dump(closed_loop_ss, f)
+    elif os.path.exists(os.path.join(savepath, savename)):
+        print('Loading closed-loop results from file... make sure no settings have changed!')
+        with open(os.path.join(savepath, savename), 'rb') as f:
+            closed_loop_ss = pickle.load(f)
+    else:
+        prnt('No closed-loop results found. Please run the sampling first.')
     # %%
 
-    fig, ax = plot_closed_loop_trajectory(closed_loop_ss)
-    fig, ax = plot_closed_loop_cons_detail(closed_loop_ss, ss_smpc)
+    _ = plot_closed_loop_trajectory(closed_loop_ss)
+    _ = plot_closed_loop_cons_detail(closed_loop_ss, ss_smpc)
     # %%
 
     # %% [markdown]
@@ -425,7 +479,7 @@ if __name__ == '__main__':
     ms_smpc = setup_controller(sid_res['msm'], smpc_settings)
     ss_smpc = setup_controller(sid_res['ssm'], smpc_settings)
 
-    test_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'])
+    test_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'], init_from_reference_sys=ref_sys)
 
     ss_smpc.read_from(test_sys)
     ms_smpc.read_from(test_sys)
@@ -433,9 +487,12 @@ if __name__ == '__main__':
     ss_smpc(None, None)
     ms_smpc(None, None)
 
+    _ = open_loop_pred_samples_ss = sample_open_loop_prediction(ss_smpc, sid_res, n_samples = 50, reference_sys=ref_sys)
+    _ = open_loop_pred_samples_ms = sample_open_loop_prediction(ms_smpc, sid_res, n_samples = 50, reference_sys=ref_sys)
+
     # %%
 
-    fig, ax = plt.subplots(3,2, figsize=(config_mpl.textwidth, .5*config_mpl.textwidth), 
+    fig, ax = plt.subplots(3,2, figsize=(config_mpl.textwidth, .4*config_mpl.textwidth), 
         sharex=True, sharey='row', dpi=150,
         gridspec_kw = {'width_ratios':[1, 1], 'height_ratios':[2, 1, 1]}
         )
@@ -481,5 +538,98 @@ if __name__ == '__main__':
     savename = 'open_loop_pred_ms_vs_ss_smpc'
     fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
 
+    # %%
 
+    savepath = os.path.join('smpc_results')
+    savename_ss = '{}_smpc_closed_loop_results_with_cov.pkl'
+
+    with open(os.path.join(savepath, savename_ss.format('ss')), 'rb') as f:
+        closed_loop_ss = pickle.load(f)
+    with open(os.path.join(savepath, savename_ss.format('ms')), 'rb') as f:
+        closed_loop_ms = pickle.load(f)
+
+    # %%
+
+    fig, ax = plt.subplots(3,2, figsize=(config_mpl.textwidth, .4*config_mpl.textwidth), 
+        sharex=True, sharey='row', dpi=150,
+        gridspec_kw = {'width_ratios':[1, 1], 'height_ratios':[2, 1, 1]}
+        )
+    
+    _, _, ms_lines_closed_loop = plot_closed_loop_trajectory(closed_loop_ms, fig_ax=(fig, ax[:,0]), with_annotations=False)
+    _, _, ss_lines_closed_loop = plot_closed_loop_trajectory(closed_loop_ss, fig_ax=(fig, ax[:,1]), with_annotations=False)
+    
+
+    ax[0,0].set_title('SMPC w. multi-step model') 
+    ax[0,1].set_title('SMPC w. state-space model') 
+    ax[0,0].set_ylabel('room\n temp. [°C]')
+    ax[1,0].set_ylabel('heat./ cool.\n power [kW]')
+    ax[2,0].set_ylabel('amb.\n temp. [°C]')
+    ax[2,0].set_xlabel('time [h]')
+    ax[2,1].set_xlabel('time [h]')
+
+    fig.align_ylabels()
+    fig.tight_layout(pad=.1)
+
+    dummy_lines = [
+        ax[0,0].plot([], [], color=config_mpl.colors[0], linestyle='none', marker='s', label='1')[0],
+        ax[0,0].plot([], [], color=config_mpl.colors[1], linestyle='none', marker='s', label='2')[0],
+        ax[0,0].plot([], [], color=config_mpl.colors[2], linestyle='none', marker='s', label='3')[0],
+        ax[0,0].plot([], [], color=config_mpl.colors[3], linestyle='none', marker='s', label='4')[0],
+    ]
+    ax[0,0].legend(handles=dummy_lines, loc='upper right', bbox_to_anchor=(1, 1.1), fontsize='small', title='room')
+
+    savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
+    savename = 'closed_loop_pred_ms_vs_ss_smpc'
+    fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
+
+    # %% [markdown]
+    """
+    ## Comparison of SMPC with and without full covariance estimation
+    """
+    # %%
+    smpc_settings_wo_cov = smpc.base.SMPCSettings(
+        prob_chance_cons=smpc_settings.prob_chance_cons,
+        with_cov=False
+    )
+    smpc_settings_wo_cov.surpress_ipopt_output()
+    ms_smpc_with_cov = setup_controller(sid_res['msm'], smpc_settings)
+    ms_smpc_wo_cov = setup_controller(sid_res['msm'], smpc_settings_wo_cov)
+
+    closed_loop_ms_with_cov = sample_closed_loop(ms_smpc_with_cov, sid_res, n_samples = 1, N_horizon=50, reference_sys=ref_sys)
+    closed_loop_ms_wo_cov = sample_closed_loop(ms_smpc_wo_cov, sid_res, n_samples = 1, N_horizon=50, reference_sys=ref_sys)
+
+
+    # %%
+
+    fig, ax = plt.subplots(2,1, figsize=(config_mpl.columnwidth, config_mpl.columnwidth), sharex=True, dpi=150)
+
+    _,_,lines_ms = plot_closed_loop_cons_detail(closed_loop_ms_with_cov, ms_smpc_with_cov, fig_ax=(fig, ax[0]), with_annotations=False)
+    _,_,lines_ss = plot_closed_loop_cons_detail(closed_loop_ms_wo_cov, ms_smpc_wo_cov, fig_ax=(fig, ax[1]), with_annotations=False)
+    # ax[0].set_xlim(17, 19.5)
+    ax[0].axis('equal')
+    ax[1].axis('equal')
+    ax[0].set_ylim(18, 21)
+    ax[1].set_ylim(18, 21)
+    lines_ms['y_samples'][0].set_alpha(1)
+    lines_ss['y_samples'][0].set_alpha(1)
+
+    ax[0].set_title('MS-SMPC w. full covariance estimation')
+    ax[1].set_title('MS-SMPC w. only variance estimation')
+
+    ax[0].set_ylabel('temp. room $t_1$ [°C]')
+    ax[1].set_ylabel('temp. room $t_1$ [°C]')
+    ax[1].set_xlabel('temp. room $t_2$ [°C]')
+
+    lines_ss['cov0'].set_label('est. cov. at $t(k+1)$')
+    lines_ss['covN'].set_label('est. cov. at $t(k+N)$')
+
+    ax[0].annotate(r'$t_1 - t_2 \geq 1$', xy=(18.2, 19.2), xytext=(18.5, 19), fontsize='small', arrowprops=dict(facecolor='black', shrink=0.05, width=.1, headwidth=4, headlength=3))
+
+    ax[1].legend(loc='lower right', fontsize='small')
+
+    fig.tight_layout(pad=.2)
+
+    savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
+    savename = 'closed_loop_pred_ms_vs_ss_smpc'
+    fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
 # %%
