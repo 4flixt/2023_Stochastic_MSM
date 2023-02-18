@@ -7,6 +7,7 @@
 # %%
 import numpy as np
 import scipy
+import pandas as pd
 import sys
 import os
 import pickle
@@ -274,7 +275,7 @@ def plot_closed_loop_trajectory(
     for sim_res_k in closed_loop_res.sim_results:
         lines['y_samples'].append(ax[0].plot(sim_res_k.time, sim_res_k.y, alpha=.2))
         lines['u_samples'].append(ax[1].step(sim_res_k.time, sim_res_k.u[:,:4], where='post', alpha=.2))
-        lines['t0_samples'].append(ax[2].step(sim_res_k.time, sim_res_k.x[:,4], alpha=.2))
+        lines['t0_samples'].append(ax[2].plot(sim_res_k.time, sim_res_k.x[:,4], alpha=.2))
 
         for ax_k in ax:
             ax_k.set_prop_cycle(None)
@@ -342,6 +343,33 @@ def plot_closed_loop_cons_detail(
 
 # %% [markdown]
 """
+## Helper functions for KPIs
+"""
+def get_closed_loop_kpis(
+        closed_loop_res: sid.DataGenerator,
+        controller: Union[smpc.StateSpaceSMPC, smpc.MultiStepSMPC],
+    ) -> pd.DataFrame:
+
+    df_dict = {
+        'sum_of_control_action': [],
+        'cons_viol_perc': [],
+    }
+
+    for sim_res_k in closed_loop_res.sim_results:
+        sum_of_control_action = np.sum(np.abs(sim_res_k.u[:,:4]))
+        cons_viol_array = (controller.stage_cons_fun(sim_res_k.y.T) > controller._stage_cons.cons_ub).full()
+        cons_viol_frac = np.sum(cons_viol_array) / cons_viol_array.size
+        cons_viol_perc = np.round(cons_viol_frac * 100, 2)
+
+        df_dict['sum_of_control_action'].append(sum_of_control_action)
+        df_dict['cons_viol_perc'].append(cons_viol_perc)
+
+    df = pd.DataFrame(df_dict)
+
+    return df
+
+# %% [markdown]
+"""
 ## Evaluations
 
 ### SMPC with multi-step model
@@ -392,7 +420,7 @@ if __name__ == '__main__':
     savepath = os.path.join('smpc_results')
     savename = 'ms_smpc_closed_loop_results_with_cov.pkl'
 
-    if True:
+    if False:
         print('Sampling closed-loop results... (this may take a while)')
         closed_loop_ms = sample_closed_loop(ms_smpc, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
 
@@ -403,7 +431,7 @@ if __name__ == '__main__':
         with open(os.path.join(savepath, savename), 'rb') as f:
             closed_loop_ms = pickle.load(f)
     else:
-        prnt('No closed-loop results found. Please run the sampling first.')
+        print('No closed-loop results found. Please run the sampling first.')
     
     # %%
 
@@ -453,7 +481,7 @@ if __name__ == '__main__':
     savepath = os.path.join('smpc_results')
     savename = 'ss_smpc_closed_loop_results_with_cov.pkl'
 
-    if True:
+    if False:
         print('Sampling closed-loop results... (this may take a while)')
         closed_loop_ss = sample_closed_loop(ss_smpc, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
 
@@ -464,7 +492,7 @@ if __name__ == '__main__':
         with open(os.path.join(savepath, savename), 'rb') as f:
             closed_loop_ss = pickle.load(f)
     else:
-        prnt('No closed-loop results found. Please run the sampling first.')
+        print('No closed-loop results found. Please run the sampling first.')
     # %%
 
     _ = plot_closed_loop_trajectory(closed_loop_ss)
@@ -582,6 +610,7 @@ if __name__ == '__main__':
     savename = 'closed_loop_pred_ms_vs_ss_smpc'
     fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
 
+
     # %% [markdown]
     """
     ## Comparison of SMPC with and without full covariance estimation
@@ -630,6 +659,103 @@ if __name__ == '__main__':
     fig.tight_layout(pad=.2)
 
     savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
-    savename = 'closed_loop_pred_ms_vs_ss_smpc'
+    savename = 'closed_loop_detail_ms_smpc_with_vs_wo_cov'
     fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
+    # %% [markdown]
+    """
+    ## Full sampling of the controller (SS and MS) with only variance information for KPI evaluation
+    """
+
+    ms_smpc_wo_cov = setup_controller(sid_res['msm'], smpc_settings_wo_cov)
+    ss_smpc_wo_cov = setup_controller(sid_res['ssm'], smpc_settings_wo_cov)
+
+    savepath = os.path.join('smpc_results')
+    savename = 'ss_smpc_closed_loop_results_wo_cov.pkl'
+
+    if False:
+        print('Sampling closed-loop results... (this may take a while)')
+        closed_loop_ss_wo_cov = sample_closed_loop(ss_smpc_wo_cov, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
+
+        with open(os.path.join(savepath, savename), 'wb') as f:
+            pickle.dump(closed_loop_ss, f)
+    elif os.path.exists(os.path.join(savepath, savename)):
+        print('Loading closed-loop results from file... make sure no settings have changed!')
+        with open(os.path.join(savepath, savename), 'rb') as f:
+            closed_loop_ss_wo_cov = pickle.load(f)
+    else:
+        print('No closed-loop results found. Please run the sampling first.')
+
+    savename = 'ms_smpc_closed_loop_results_wo_cov.pkl'
+
+    if False:
+        print('Sampling closed-loop results... (this may take a while)')
+        closed_loop_ms_wo_cov = sample_closed_loop(ms_smpc_wo_cov, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
+
+        with open(os.path.join(savepath, savename), 'wb') as f:
+            pickle.dump(closed_loop_ss, f)
+    elif os.path.exists(os.path.join(savepath, savename)):
+        print('Loading closed-loop results from file... make sure no settings have changed!')
+        with open(os.path.join(savepath, savename), 'rb') as f:
+            closed_loop_ms_wo_cov = pickle.load(f)
+    else:
+        print('No closed-loop results found. Please run the sampling first.')
+
+    # %% [markdown]
+    """
+    ## Read KPI and export to table
+    """
+    # %%
+    kpi_closed_loop_ms_with_cov = get_closed_loop_kpis(closed_loop_ms, ms_smpc)
+    kpi_closed_loop_ss_with_cov = get_closed_loop_kpis(closed_loop_ss, ss_smpc)
+    kpi_closed_loop_ms_wo_cov = get_closed_loop_kpis(closed_loop_ms_wo_cov, ms_smpc)
+    kpi_closed_loop_ss_wo_cov = get_closed_loop_kpis(closed_loop_ss_wo_cov, ss_smpc)
+
+    kpi_closed_loop_ss_wo_cov
+
+    df_ms = pd.concat([
+        kpi_closed_loop_ms_with_cov.mean(),
+        kpi_closed_loop_ms_wo_cov.mean(),
+    ], axis=1, keys=['with cov.', 'w/o cov.'])
+
+    df_ss = pd.concat([
+        kpi_closed_loop_ss_with_cov.mean(),
+        kpi_closed_loop_ss_wo_cov.mean(),
+    ], axis=1, keys=['with cov.', 'w/o cov.'])
+
+    df_cat = pd.concat([df_ms, df_ss], axis=1, keys=['MS-SMPC', 'SS-SMPC'])
+
+    df_cat
+
+    # %%
+
+
+    tex_str = df_cat.to_latex(
+        float_format='{:0.2f}'.format,
+        multicolumn=True,
+        multirow=True,
+        # column_format='p{2.5cm}'+'X'*(len(df.columns)),
+    )
+
+    tex_str = tex_str.replace('sum\\_of\\_control\\_action', r'$\bar{q}$ [kWh]')
+    tex_str = tex_str.replace('cons\\_viol\\_perc', r'cons. viol. [\%]')
+
+
+    tex_str_list = tex_str.split('\n')
+
+    tex_str_list.insert(3, r'\cmidrule(lr){2-3} \cmidrule(lr){4-5}')
+
+    tex_str_list.pop(1) # Remove toprule
+
+
+    tex_str =  '\n'.join(tex_str_list)
+
+    
+    savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'tables')
+    savename = 'closed_loop_results_table.tex'
+
+    with open(os.path.join(savepath, savename), 'w') as f:
+        f.write(tex_str)
+
+
+
 # %%
