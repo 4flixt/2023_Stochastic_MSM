@@ -126,3 +126,5 @@ dmypy.json
 systems/samples_mass_spring/
 
 results/sid_results/
+
+results/smpc_results/
