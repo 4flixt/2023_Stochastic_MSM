@@ -12,7 +12,7 @@ textwidth = 7.00 # in inches
 columnwidth = 3.400 # in inches
 golden_ratio = 1.618
 
-fontsize = 10
+fontsize = 8
 
 mpl.rcParams.update({
     'lines.linewidth':1,
