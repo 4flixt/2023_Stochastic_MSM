@@ -27,12 +27,14 @@ class SystemGenerator:
             sig_y: Union[float, np.ndarray] = 0.0,
             dt: float = 0.1,
             case_kwargs: Optional[Dict] = dict(),
+            P0: Optional[np.ndarray] = None,
         ):
         self.sys_type = sys_type
         self.sig_x = sig_x
         self.sig_y = sig_y
         self.dt = dt
         self.case_kwargs = case_kwargs
+        self.P0 = P0
 
 
     def triple_mass_spring(self, state_feedback=False, x0=None):
@@ -46,7 +48,7 @@ class SystemGenerator:
         if x0 is None:
             x0 = np.pi*np.random.randn(8,1)
 
-        sys = system.LTISystem(A,B,C,D, x0=x0, sig_x=self.sig_x, sig_y=self.sig_y, dt=self.dt)
+        sys = system.LTISystem(A,B,C,D, x0=x0, sig_x=self.sig_x, sig_y=self.sig_y, dt=self.dt, P0=self.P0)
 
         return sys
 
@@ -66,7 +68,7 @@ class SystemGenerator:
                 [0,0,0,1,0],
             ])
 
-        sys = system.LTISystem(A, B, C, x0=x0, sig_x=self.sig_x, sig_y=self.sig_y, dt=self.dt)
+        sys = system.LTISystem(A, B, C, x0=x0, sig_x=self.sig_x, sig_y=self.sig_y, dt=self.dt, P0=self.P0)
 
         return sys
 

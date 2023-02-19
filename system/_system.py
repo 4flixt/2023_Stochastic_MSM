@@ -3,7 +3,7 @@ import pandas as pd
 import pdb
 import casadi as cas
 import casadi.tools as ctools
-from typing import Callable, Union, Tuple, List, Dict, Any
+from typing import Callable, Optional, Union, Tuple, List, Dict, Any
 
 _u_fun_type = Callable[[np.ndarray, float], np.ndarray]
  
@@ -266,9 +266,26 @@ class LTISystem(System):
 
             if E is None:
                 E = np.eye(self.A.shape[0])
+            if Q is None:
+                Q = np.eye(self.A.shape[0])
 
             self.P0 = self.A@self.P0@self.A.T + E@Q@E.T
         
+    def simulate(self, 
+            u_fun: Callable[[np.ndarray, float], np.ndarray], 
+            N: int = 1,
+            ):
+        """
+        Simulate the system for N steps using the input function u_fun.
+        """
+        Q = self.sig_x**2 * np.eye(self.A.shape[0])
+
+        for k in range(N):
+            u = u_fun(self.x0, self.t_now)
+            self.make_step(u, Q)
+
+        return self
+
     def reset(self, x0=None, P0=None, t_now=0):
         """
         Reset the system (clear history).
