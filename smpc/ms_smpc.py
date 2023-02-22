@@ -72,7 +72,7 @@ class MultiStepSMPC(base.SMPCBase):
 
         H = cas.jacobian(self.chance_cons.cons, y_pred)
 
-        cp = scipy.special.erfinv(2*self.settings.prob_chance_cons -1)
+        cp = np.sqrt(2)*scipy.special.erfinv(2*self.settings.prob_chance_cons -1)
         self.cp = cp
 
         for i, H_i in enumerate(cas.vertsplit(H)):
