@@ -209,18 +209,18 @@ def plot_open_loop_prediction(
     ax[0].plot(t_pred, controller.res_y_pred-controller.cp*controller.res_y_std, '--')
         
     ax[0].set_prop_cycle(None)
-    lines['y_past'] = ax[0].plot(t_past, controller.res_y_past, '-x')
+    lines['y_past'] = ax[0].plot(t_past, controller.res_y_past, '-')
     ax[0].axhline(18, color='k', linestyle=':')
     ax[0].axvline(0, color='k', linestyle='-')
 
     lines['u_pred'] = ax[1].step(t_pred[:-1],controller.res_u_pred[:-1,:4], where='post')
     ax[1].set_prop_cycle(None)
-    lines['u_past'] = ax[1].step(t_past,controller.res_u_past[:,:4], '-x', where='post')
+    lines['u_past'] = ax[1].step(t_past,controller.res_u_past[:,:4], '-', where='post')
     ax[1].axvline(0, color='k', linestyle='-')
 
     lines['t0_pred'] = ax[2].plot(t_pred[:-1],controller.res_u_pred[:-1,4])
     ax[2].set_prop_cycle(None)
-    lines['t0_past'] = ax[2].plot(t_past,controller.res_u_past[:,4], '-x')
+    lines['t0_past'] = ax[2].plot(t_past,controller.res_u_past[:,4], '-')
     ax[2].axvline(0, color='k', linestyle='-')
 
     if with_annotations:
@@ -309,9 +309,9 @@ def plot_closed_loop_cons_detail(
     lines = {}
     lines['y_samples'] = []
     for sim_res_k in closed_loop_res.sim_results:
-        lines['y_samples'].append(ax.plot(sim_res_k.y[:,1], sim_res_k.y[:,0],color=config_mpl.colors[0], alpha=.1)[0])
-    ax.plot([], [], color=config_mpl.colors[0], label=r'$y(t)$', alpha=.1)
-    lines['y_pred'] = ax.plot(controller.res_y_pred[:,1], controller.res_y_pred[:,0], color=config_mpl.colors[1], label=r'$y_{\text{pred}}(t)$')
+        lines['y_samples'].append(ax.plot(sim_res_k.y[:,1], sim_res_k.y[:,0],color=config_mpl.colors[0], alpha=1/len(closed_loop_res.sim_results))[0])
+    ax.plot([], [], color=config_mpl.colors[0], label=r'$r_k$', alpha=1)
+    lines['y_pred'] = ax.plot(controller.res_y_pred[:,1], controller.res_y_pred[:,0], color=config_mpl.colors[1], label=r'$r_{k,\text{pred}}$')
 
     cons_1 = np.linspace(17, 20, 5)
     ax.plot(cons_1, cons_1+1, color='k', linestyle='--', label='constraint')
@@ -393,6 +393,9 @@ if __name__ == '__main__':
 
     test_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'], init_from_reference_sys=ref_sys)
 
+    # %%
+    print(ms_smpc.cp)
+
 
     # %%
 
@@ -418,7 +421,7 @@ if __name__ == '__main__':
     Sample and save results. Alternatively, load the saved results.
     """
     savepath = os.path.join('smpc_results')
-    savename = 'ms_smpc_closed_loop_results_with_cov.pkl'
+    savename = '02_ms_smpc_closed_loop_results_with_cov.pkl'
 
     if False:
         print('Sampling closed-loop results... (this may take a while)')
@@ -437,6 +440,8 @@ if __name__ == '__main__':
 
     _ = plot_closed_loop_trajectory(closed_loop_ms)
     _ = plot_closed_loop_cons_detail(closed_loop_ms, ms_smpc)
+
+    get_closed_loop_kpis(closed_loop_ms, ms_smpc).mean()
     # %%
 
     # %% [markdown]
@@ -479,7 +484,7 @@ if __name__ == '__main__':
     ## Closed-loop simulation
     """
     savepath = os.path.join('smpc_results')
-    savename = 'ss_smpc_closed_loop_results_with_cov.pkl'
+    savename = '02_ss_smpc_closed_loop_results_with_cov.pkl'
 
     if False:
         print('Sampling closed-loop results... (this may take a while)')
@@ -569,7 +574,7 @@ if __name__ == '__main__':
     # %%
 
     savepath = os.path.join('smpc_results')
-    savename_ss = '{}_smpc_closed_loop_results_with_cov.pkl'
+    savename_ss = '02_{}_smpc_closed_loop_results_with_cov.pkl'
 
     with open(os.path.join(savepath, savename_ss.format('ss')), 'rb') as f:
         closed_loop_ss = pickle.load(f)
@@ -634,27 +639,25 @@ if __name__ == '__main__':
 
     _,_,lines_ms = plot_closed_loop_cons_detail(closed_loop_ms_with_cov, ms_smpc_with_cov, fig_ax=(fig, ax[0]), with_annotations=False)
     _,_,lines_ss = plot_closed_loop_cons_detail(closed_loop_ms_wo_cov, ms_smpc_wo_cov, fig_ax=(fig, ax[1]), with_annotations=False)
-    # ax[0].set_xlim(17, 19.5)
     ax[0].axis('equal')
     ax[1].axis('equal')
     ax[0].set_ylim(18, 21)
-    ax[1].set_ylim(18, 21)
-    lines_ms['y_samples'][0].set_alpha(1)
-    lines_ss['y_samples'][0].set_alpha(1)
+    ax[1].set_ylim(18.5, 21.5)
+    ax[0].set_xlim(17.5, 20.5)
 
-    ax[0].set_title('MS-SMPC w. full covariance estimation')
-    ax[1].set_title('MS-SMPC w. only variance estimation')
+    ax[0].set_title('MSM-SMPC w. full covariance estimation')
+    ax[1].set_title('MSM-SMPC w. only variance estimation')
 
     ax[0].set_ylabel('temp. room $t_1$ [°C]')
     ax[1].set_ylabel('temp. room $t_1$ [°C]')
     ax[1].set_xlabel('temp. room $t_2$ [°C]')
 
-    lines_ss['cov0'].set_label('est. cov. at $t(k+1)$')
-    lines_ss['covN'].set_label('est. cov. at $t(k+N)$')
+    lines_ms['cov0'].set_label('est. cov. at $k+1$')
+    lines_ms['covN'].set_label('est. cov. at $k+N$')
 
-    ax[0].annotate(r'$t_1 - t_2 \geq 1$', xy=(18.2, 19.2), xytext=(18.5, 19), fontsize='small', arrowprops=dict(facecolor='black', shrink=0.05, width=.1, headwidth=4, headlength=3))
+    ax[1].annotate(r'$t_1 - t_2 \geq 1$', xy=(19, 20), xytext=(19.5, 19.5), arrowprops=dict(facecolor='black', shrink=0.05, width=.1, headwidth=4, headlength=3))
 
-    ax[1].legend(loc='lower right', fontsize='small')
+    ax[0].legend(loc='lower right')
 
     fig.tight_layout(pad=.2)
 
@@ -670,35 +673,46 @@ if __name__ == '__main__':
     ss_smpc_wo_cov = setup_controller(sid_res['ssm'], smpc_settings_wo_cov)
 
     savepath = os.path.join('smpc_results')
-    savename = 'ss_smpc_closed_loop_results_wo_cov.pkl'
+    savename = '02_ss_smpc_closed_loop_results_wo_cov.pkl'
 
-    if False:
+    if True:
         print('Sampling closed-loop results... (this may take a while)')
         closed_loop_ss_wo_cov = sample_closed_loop(ss_smpc_wo_cov, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
 
         with open(os.path.join(savepath, savename), 'wb') as f:
-            pickle.dump(closed_loop_ss, f)
+            pickle.dump(closed_loop_ss_wo_cov, f)
     elif os.path.exists(os.path.join(savepath, savename)):
-        print('Loading closed-loop results from file... make sure no settings have changed!')
+        print(f'Loading closed-loop results from file {savename}... make sure no settings have changed!')
         with open(os.path.join(savepath, savename), 'rb') as f:
             closed_loop_ss_wo_cov = pickle.load(f)
     else:
         print('No closed-loop results found. Please run the sampling first.')
 
-    savename = 'ms_smpc_closed_loop_results_wo_cov.pkl'
+    savename = '02_ms_smpc_closed_loop_results_wo_cov.pkl'
 
-    if False:
+    if True:
         print('Sampling closed-loop results... (this may take a while)')
         closed_loop_ms_wo_cov = sample_closed_loop(ms_smpc_wo_cov, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
 
         with open(os.path.join(savepath, savename), 'wb') as f:
-            pickle.dump(closed_loop_ss, f)
+            pickle.dump(closed_loop_ms_wo_cov, f)
     elif os.path.exists(os.path.join(savepath, savename)):
-        print('Loading closed-loop results from file... make sure no settings have changed!')
+        print(f'Loading closed-loop results from file {savename}... make sure no settings have changed!')
         with open(os.path.join(savepath, savename), 'rb') as f:
             closed_loop_ms_wo_cov = pickle.load(f)
     else:
         print('No closed-loop results found. Please run the sampling first.')
+
+
+    # %%
+    fig, ax = plt.subplots(3,2, figsize=(config_mpl.textwidth, .4*config_mpl.textwidth), 
+        sharex=True, sharey='row', dpi=150,
+        gridspec_kw = {'width_ratios':[1, 1], 'height_ratios':[2, 1, 1]}
+        )
+    
+    _, _, ms_lines_closed_loop = plot_closed_loop_trajectory(closed_loop_ms_wo_cov, fig_ax=(fig, ax[:,0]), with_annotations=False)
+    _, _, ss_lines_closed_loop = plot_closed_loop_trajectory(closed_loop_ss_wo_cov, fig_ax=(fig, ax[:,1]), with_annotations=False)
+    
 
     # %% [markdown]
     """
@@ -722,7 +736,7 @@ if __name__ == '__main__':
         kpi_closed_loop_ss_wo_cov.mean(),
     ], axis=1, keys=['with cov.', 'w/o cov.'])
 
-    df_cat = pd.concat([df_ms, df_ss], axis=1, keys=['MS-SMPC', 'SS-SMPC'])
+    df_cat = pd.concat([df_ms, df_ss], axis=1, keys=['MSM-SMPC', 'SSM-SMPC'])
 
     df_cat
 
