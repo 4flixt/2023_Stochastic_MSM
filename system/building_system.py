@@ -53,8 +53,7 @@ def get_ABC(t_samp: Optional[float]= 3600.00) -> Tuple[np.ndarray, np.ndarray, n
     C = np.eye(5)
     D = np.zeros((5,5))
 
-    dt = 3600 #s
-    A_dc, B_dc, C_dc, D_dc, _ = cont2discrete((A, B, C, D), dt, method='zoh')
+    A_dc, B_dc, C_dc, D_dc, _ = cont2discrete((A, B, C, D), t_samp, method='zoh')
 
     return A_dc, B_dc, C_dc  
 
