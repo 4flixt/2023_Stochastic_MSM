@@ -248,10 +248,16 @@ class LTISystem(System):
 
         super().__init__(rhs_func, meas_func, x0=x0, u0=u0, dt=dt, t_now=t_now, sig_y=sig_y, sig_x=sig_x)
 
-        self.P0 = P0
-        self._P = []
+        self.P0_x = P0
+        if P0 is not None:
+            self.P0_y = self.C@P0@self.C.T
+        else:
+            self.P0_y = None
 
-    def make_step(self, u, Q=None, E=None):
+        self._P_x = []
+        self._P_y = []
+
+    def make_step(self, u, Q=None, E=None, R=None):
         """
         Run a simulation step with input u.
 
@@ -261,15 +267,19 @@ class LTISystem(System):
         super().make_step(u)
 
 
-        if self.P0 is not None:
-            self._P.append(self.P0)
+        if self.P0_x is not None:
+            self._P_x.append(self.P0_x)
+            self._P_y.append(self.P0_y)
 
             if E is None:
                 E = np.eye(self.A.shape[0])
             if Q is None:
                 Q = np.eye(self.A.shape[0])
+            if R is None:
+                R = 0*np.eye(self.C.shape[0])
 
-            self.P0 = self.A@self.P0@self.A.T + E@Q@E.T
+            self.P0_x = self.A@self.P0_x@self.A.T + E@Q@E.T
+            self.P0_y = self.C@self.P0_x@self.C.T + R
         
     def simulate(self, 
             u_fun: Callable[[np.ndarray, float], np.ndarray], 
@@ -279,10 +289,11 @@ class LTISystem(System):
         Simulate the system for N steps using the input function u_fun.
         """
         Q = self.sig_x**2 * np.eye(self.A.shape[0])
+        R = self.sig_y**2 * np.eye(self.C.shape[0])
 
         for k in range(N):
             u = u_fun(self.x0, self.t_now)
-            self.make_step(u, Q)
+            self.make_step(u, Q=Q, R=R)
 
         return self
 
@@ -291,15 +302,27 @@ class LTISystem(System):
         Reset the system (clear history).
         """
         super().reset(x0=x0, t_now=t_now)
-        self.P0 = P0
-        self._P = []
+        self.P0_x = P0
+        if P0 is not None:
+            self.P0_y = self.C@P0@self.C.T
+        else:
+            self.P0_y = None
+        self._P_x = []
+        self._P_y = []
 
     @property
-    def P(self):
-        if self.P0 is None:
+    def P_x(self):
+        if self.P0_x is None:
             raise AttributeError('P0 is not set.')
         else:
-            return np.stack(self._P)
+            return np.stack(self._P_x)
+
+    @property
+    def P_y(self):
+        if self.P0_y is None:
+            raise AttributeError('P0 is not set.')
+        else:
+            return np.stack(self._P_y)
 
     def __getstate__(self):
         state = self.__dict__.copy()

@@ -323,13 +323,13 @@ class StateSpaceModel:
             arx_in = np.concatenate((self.LTI.x0, u), axis=0)
             _, Q = self.predict(arx_in.T, uncert_type='cov', **kwargs)
 
-            self.LTI.make_step(u, Q, self.LTI.C.T)
+            self.LTI.make_step(u, Q, E=self.LTI.C.T, R=None)
 
         x_seq = self.LTI.x[1:] # Remove initial condition
-        P_seq = self.LTI.P[1:] # Remove initial condition
+        P_seq = self.LTI.P_y[1:] # Remove initial condition
         C = self.LTI.C
 
         y = x_seq@C.T
-        std = np.sqrt((np.diagonal(P_seq, axis1=1, axis2=2)@C.T))
+        std = np.sqrt((np.diagonal(P_seq, axis1=1, axis2=2)))
 
         return y, std
