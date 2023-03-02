@@ -209,18 +209,18 @@ def plot_open_loop_prediction(
     ax[0].plot(t_pred, controller.res_y_pred-controller.cp*controller.res_y_std, '--')
         
     ax[0].set_prop_cycle(None)
-    lines['y_past'] = ax[0].plot(t_past, controller.res_y_past, '-')
+    lines['y_past'] = ax[0].plot(t_past, controller.res_y_past, 'x')
     ax[0].axhline(18, color='k', linestyle=':')
     ax[0].axvline(0, color='k', linestyle='-')
 
     lines['u_pred'] = ax[1].step(t_pred[:-1],controller.res_u_pred[:-1,:4], where='post')
     ax[1].set_prop_cycle(None)
-    lines['u_past'] = ax[1].step(t_past,controller.res_u_past[:,:4], '-', where='post')
+    lines['u_past'] = ax[1].step(t_past,controller.res_u_past[:,:4], 'x', where='post')
     ax[1].axvline(0, color='k', linestyle='-')
 
     lines['t0_pred'] = ax[2].plot(t_pred[:-1],controller.res_u_pred[:-1,4])
     ax[2].set_prop_cycle(None)
-    lines['t0_past'] = ax[2].plot(t_past,controller.res_u_past[:,4], '-')
+    # lines['t0_past'] = ax[2].plot(t_past,controller.res_u_past[:,4], 'x')
     ax[2].axvline(0, color='k', linestyle='-')
 
     if with_annotations:
@@ -238,6 +238,7 @@ def plot_open_loop_prediction_with_samples(
     open_loop_samples: sid.DataGenerator,
     fig_ax: Optional[Tuple[plt.figure, plt.axis]] = None,
     with_annotations: bool = True,
+    with_intial_sequence: bool = False,
     ) -> Tuple[plt.figure, plt.axis, Dict[str, plt.Line2D]]:
 
 
@@ -246,12 +247,17 @@ def plot_open_loop_prediction_with_samples(
     lines['y_samples'] = []
     lines['t0_samples'] = []
 
+    if with_intial_sequence:
+        start_ind = 0
+    else:
+        start_ind = sid_model.data_setup.T_ini
+
     for sim_res in open_loop_samples.sim_results:
         ax[0].set_prop_cycle(None)
-        lines['y_samples'].append(ax[0].plot(sim_res.time-3, sim_res.y, alpha=.1))
+        lines['y_samples'].append(ax[0].plot((sim_res.time-3)[start_ind:], sim_res.y[start_ind:], alpha=.1))
 
         ax[-1].set_prop_cycle(None)
-        lines['t0_samples'].append(ax[-1].plot(sim_res.time-3, sim_res.x[:,4], alpha=.1))
+        lines['t0_samples'].append(ax[-1].plot((sim_res.time-3)[start_ind:], sim_res.x[start_ind:,4], alpha=.1))
 
     return fig, ax,lines
 
@@ -310,8 +316,8 @@ def plot_closed_loop_cons_detail(
     lines['y_samples'] = []
     for sim_res_k in closed_loop_res.sim_results:
         lines['y_samples'].append(ax.plot(sim_res_k.y[:,1], sim_res_k.y[:,0],color=config_mpl.colors[0], alpha=1/len(closed_loop_res.sim_results))[0])
-    ax.plot([], [], color=config_mpl.colors[0], label=r'$r_k$', alpha=1)
-    lines['y_pred'] = ax.plot(controller.res_y_pred[:,1], controller.res_y_pred[:,0], color=config_mpl.colors[1], label=r'$r_{k,\text{pred}}$')
+    ax.plot([], [], color=config_mpl.colors[0], label=r'$\vr_{[0,k]}$', alpha=1)
+    lines['y_pred'] = ax.plot(controller.res_y_pred[:,1], controller.res_y_pred[:,0], color=config_mpl.colors[1], label=r'$\hat\vr_{[k+1,k+N]}$')
 
     cons_1 = np.linspace(17, 20, 5)
     ax.plot(cons_1, cons_1+1, color='k', linestyle='--', label='constraint')
@@ -525,7 +531,7 @@ if __name__ == '__main__':
 
     # %%
 
-    fig, ax = plt.subplots(3,2, figsize=(config_mpl.textwidth, .4*config_mpl.textwidth), 
+    fig, ax = plt.subplots(3,2, figsize=(config_mpl.textwidth, .38*config_mpl.textwidth), 
         sharex=True, sharey='row', dpi=150,
         gridspec_kw = {'width_ratios':[1, 1], 'height_ratios':[2, 1, 1]}
         )
@@ -537,27 +543,28 @@ if __name__ == '__main__':
         ss_smpc, sid_res['ssm'], open_loop_pred_samples_ss, fig_ax=(fig, ax[:,1]), with_annotations=False,
         )
 
-    ax[0,0].set_title('SMPC w. multi-step model') 
-    ax[0,1].set_title('SMPC w. state-space model') 
+    ax[0,0].set_title('SMPC with multi-step model (MSM-SMPC)') 
+    ax[0,1].set_title('SMPC with state-space model (SSM-SMPC)') 
     ax[0,0].set_ylabel('room\n temp. [°C]')
     ax[1,0].set_ylabel('heat./ cool.\n power [kW]')
     ax[2,0].set_ylabel('amb.\n temp. [°C]')
     ax[2,0].set_xlabel('time [h]')
     ax[2,1].set_xlabel('time [h]')
-    ax[2,0].text(-2.5, 7.5, '$\\leftarrow$ past')
-    ax[2,0].text(.5, 7.5, 'pred. $\\rightarrow$')
+    ax[2,0].text(-2.5, 8, '$\\leftarrow$ past')
+    ax[2,0].text(.5, 8, 'pred. $\\rightarrow$')
 
 
     fig.align_ylabels()
     fig.tight_layout(pad=.1)
     dummy_lines = [
+        ax[0,0].plot([], [], color='k', marker='x', markersize = 4, linestyle='none', label='initial measurements')[0],
         ax[0,0].plot([], [], color='k', linestyle='-', label='open-loop pred.')[0],
         ax[0,0].plot([], [], color='k', linestyle='--', label=r'$\pm c_p\sigma$')[0],
         ax[0,0].plot([], [], color='k', linestyle='none', marker='$\equiv$', markersize=8, mew=.1, label='sampled closed-loop traj.', alpha=.4)[0],
         ax[0,0].plot([], [], color='k', linestyle=':', label='constraints')[0],
     ]
 
-    ax[0,1].legend(handles=dummy_lines, loc='upper center', bbox_to_anchor=(0, 1.0), ncol=4, fontsize='small')
+    ax[0,1].legend(handles=dummy_lines, loc='upper center', bbox_to_anchor=(0, 1.0), ncol=5, fontsize='small')
 
     dummy_lines = [
         ax[0,0].plot([], [], color=config_mpl.colors[0], linestyle='none', marker='s', label='1')[0],
@@ -652,8 +659,8 @@ if __name__ == '__main__':
     ax[1].set_ylabel('temp. room $t_1$ [°C]')
     ax[1].set_xlabel('temp. room $t_2$ [°C]')
 
-    lines_ms['cov0'].set_label('est. cov. at $k+1$')
-    lines_ms['covN'].set_label('est. cov. at $k+N$')
+    lines_ms['cov0'].set_label('$\hat\mSigma_{r,k+1}$')
+    lines_ms['covN'].set_label('$\hat\mSigma_{r,k+N}$')
 
     ax[1].annotate(r'$t_1 - t_2 \geq 1$', xy=(19, 20), xytext=(19.5, 19.5), arrowprops=dict(facecolor='black', shrink=0.05, width=.1, headwidth=4, headlength=3))
 
@@ -675,7 +682,7 @@ if __name__ == '__main__':
     savepath = os.path.join('smpc_results')
     savename = '02_ss_smpc_closed_loop_results_wo_cov.pkl'
 
-    if True:
+    if False:
         print('Sampling closed-loop results... (this may take a while)')
         closed_loop_ss_wo_cov = sample_closed_loop(ss_smpc_wo_cov, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
 
@@ -690,7 +697,7 @@ if __name__ == '__main__':
 
     savename = '02_ms_smpc_closed_loop_results_wo_cov.pkl'
 
-    if True:
+    if False:
         print('Sampling closed-loop results... (this may take a while)')
         closed_loop_ms_wo_cov = sample_closed_loop(ms_smpc_wo_cov, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
 
