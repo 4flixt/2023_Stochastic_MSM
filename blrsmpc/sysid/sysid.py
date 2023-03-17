@@ -1,4 +1,4 @@
-
+# %% 
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -10,9 +10,9 @@ from typing import Union, List, Dict, Tuple, Optional, Callable
 from dataclasses import dataclass
 from enum import Enum, auto
 
-import system
-import bayli
-import helper
+from blrsmpc import system
+from blrsmpc.sysid import bayli
+from blrsmpc import helper
 # %%
 class SystemType(Enum):
     TRIPLE_MASS_SPRING = auto()

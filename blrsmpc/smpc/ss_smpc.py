@@ -13,10 +13,13 @@ from enum import Enum, auto
 import copy
 import pdb
 
-sys.path.append(os.path.join('..'))
-import sysid as sid
+# sys.path.append(os.path.join('..'))
+# import sysid as sid
+# from . import base
+# import system
+from blrsmpc.sysid import sysid as sid
 from . import base
-import system
+from blrsmpc import system
 
 class StateSpaceSMPC(base.SMPCBase):
     def __init__(self, sid_model: sid.StateSpaceModel, settings: base.SMPCSettings):

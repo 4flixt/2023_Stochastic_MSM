@@ -13,9 +13,11 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 import pdb
 
-sys.path.append(os.path.join('..'))
-import system
-import sysid as sid
+from blrsmpc import system
+from blrsmpc.sysid import sysid as sid
+# sys.path.append(os.path.join('..'))
+# import system
+# import sysid as sid
 
 
 def chi_sq_pdf(k, x):

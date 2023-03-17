@@ -13,8 +13,10 @@ from enum import Enum, auto
 import copy
 import pdb
 
-sys.path.append(os.path.join('..'))
-import sysid as sid
+# sys.path.append(os.path.join('..'))
+# import sysid as sid
+# from . import base
+from blrsmpc.sysid import sysid as sid
 from . import base
 
 class MultiStepSMPC(base.SMPCBase):
