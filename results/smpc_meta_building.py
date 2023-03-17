@@ -22,17 +22,20 @@ import time
 import random
 import copy
 
+
 sys.path.append(os.path.join('..'))
-sys.path.append(os.path.join('..', 'plots'))
+from blrsmpc.sysid import sysid as sid
+from blrsmpc import smpc
+from blrsmpc import system
+from blrsmpc import helper
+from blrsmpc import plotconfig
 
-import smpc
-import sysid as sid
-import helper
-import system
-import config_mpl
-importlib.reload(config_mpl)
-importlib.reload(smpc)
 
+# Configure matplotlib and load notation from tex
+plotconfig.config_mpl(os.path.join('..', 'blrsmpc', 'plotconfig', 'notation.tex'))
+
+# Export figures?
+export_figures = False
 
 # %% [markdown]
 """
@@ -40,8 +43,8 @@ importlib.reload(smpc)
 """
 
 # %%
-def load_sid_results():
-    load_name = os.path.join('sid_results', 'building_prediction_models.pkl')
+def load_sid_results(file_name: str):
+    load_name = os.path.join('sid_results', file_name)
     with open(load_name, "rb") as f:
         res = pickle.load(f)
 
@@ -100,7 +103,7 @@ def get_system_for_case_study(
             case_kwargs={'state_feedback':False, 'x0': x0},
             dt=1,
         )
-
+    
     sys = sys_generator()
 
     # Generate an initial sequence of measurements or use the reference system as initial state
@@ -305,9 +308,9 @@ def plot_closed_loop_cons_detail(
         fig_ax: Optional[Tuple[plt.figure, plt.axis]] = None,
         with_annotations: bool = True
         )-> Tuple[plt.figure, plt.axis, Dict[str, plt.Line2D]]:
-    
+
     if fig_ax is None:
-        fig, ax = plt.subplots(1,1, figsize=(config_mpl.columnwidth, config_mpl.columnwidth))
+        fig, ax = plt.subplots(1,1, figsize=(plotconfig.columnwidth, plotconfig.columnwidth))
     else:
         fig, ax = fig_ax
 
@@ -315,9 +318,9 @@ def plot_closed_loop_cons_detail(
     lines = {}
     lines['y_samples'] = []
     for sim_res_k in closed_loop_res.sim_results:
-        lines['y_samples'].append(ax.plot(sim_res_k.y[:,1], sim_res_k.y[:,0],color=config_mpl.colors[0], alpha=1/len(closed_loop_res.sim_results))[0])
-    ax.plot([], [], color=config_mpl.colors[0], label=r'$\vr_{[0,k]}$', alpha=1)
-    lines['y_pred'] = ax.plot(controller.res_y_pred[:,1], controller.res_y_pred[:,0], color=config_mpl.colors[1], label=r'$\hat\vr_{[k+1,k+N]}$')
+        lines['y_samples'].append(ax.plot(sim_res_k.y[:,1], sim_res_k.y[:,0],color=plotconfig.colors[0], alpha=1/len(closed_loop_res.sim_results))[0])
+    ax.plot([], [], color=plotconfig.colors[0], label=r'$\vr_{[0,k]}$', alpha=1)
+    lines['y_pred'] = ax.plot(controller.res_y_pred[:,1], controller.res_y_pred[:,0], color=plotconfig.colors[1], label=r'$\hat\vr_{[k+1,k+N]}$')
 
     cons_1 = np.linspace(17, 20, 5)
     ax.plot(cons_1, cons_1+1, color='k', linestyle='--', label='constraint')
@@ -327,10 +330,10 @@ def plot_closed_loop_cons_detail(
     covN = controller.opt_aux_num['Sigma_y_pred'][-4:-2,-4:-2].full()
 
     e2=helper.plot_cov_as_ellipse(controller.res_y_pred[-1,1], controller.res_y_pred[-1,0], covN,
-        ax=ax, n_std=controller.cp, edgecolor=config_mpl.colors[2], facecolor=config_mpl.colors[2], alpha=0.3
+        ax=ax, n_std=controller.cp, edgecolor=plotconfig.colors[2], facecolor=plotconfig.colors[2], alpha=0.3
         )
     e1=helper.plot_cov_as_ellipse(controller.res_y_pred[0,1], controller.res_y_pred[0,0], cov0,
-        ax=ax, n_std=controller.cp, edgecolor=config_mpl.colors[1], facecolor=config_mpl.colors[1], alpha=0.3
+        ax=ax, n_std=controller.cp, edgecolor=plotconfig.colors[1], facecolor=plotconfig.colors[1], alpha=0.3
         )
     # ax.set_ylim(19, 21)
     # ax.set_xlim(17.5, 19.5)
@@ -383,7 +386,9 @@ def get_closed_loop_kpis(
 # %% 
 if __name__ == '__main__':
 
-    sid_res = load_sid_results()
+    sid_result_file_name = '02_building_prediction_models.pkl'
+
+    sid_res = load_sid_results(sid_result_file_name)
 
     smpc_settings = smpc.base.SMPCSettings(
         prob_chance_cons=.99,
@@ -399,11 +404,9 @@ if __name__ == '__main__':
 
     test_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'], init_from_reference_sys=ref_sys)
 
-    # %%
-    print(ms_smpc.cp)
-
 
     # %%
+    np.random.seed(99)
 
     ms_smpc.read_from(test_sys)
     # Simulate the system using the controller for n time steps
@@ -426,21 +429,21 @@ if __name__ == '__main__':
 
     Sample and save results. Alternatively, load the saved results.
     """
-    savepath = os.path.join('smpc_results')
-    savename = '02_ms_smpc_closed_loop_results_with_cov.pkl'
+    np.random.seed(99)
 
-    if False:
+    savepath = os.path.join('smpc_results')
+    savename = '04_ms_smpc_closed_loop_results_with_cov.pkl'
+        
+    if os.path.exists(os.path.join(savepath, savename)):
+        print('Loading closed-loop results from file... make sure no settings have changed!')
+        with open(os.path.join(savepath, savename), 'rb') as f:
+            closed_loop_ms = pickle.load(f)
+    else:
         print('Sampling closed-loop results... (this may take a while)')
         closed_loop_ms = sample_closed_loop(ms_smpc, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
 
         with open(os.path.join(savepath, savename), 'wb') as f:
             pickle.dump(closed_loop_ms, f)
-    elif os.path.exists(os.path.join(savepath, savename)):
-        print('Loading closed-loop results from file... make sure no settings have changed!')
-        with open(os.path.join(savepath, savename), 'rb') as f:
-            closed_loop_ms = pickle.load(f)
-    else:
-        print('No closed-loop results found. Please run the sampling first.')
     
     # %%
 
@@ -456,7 +459,7 @@ if __name__ == '__main__':
     """
     # %%
     
-    sid_res = load_sid_results()
+    sid_res = load_sid_results(sid_result_file_name)
 
     smpc_settings = smpc.base.SMPCSettings(
         prob_chance_cons=.99,
@@ -481,6 +484,7 @@ if __name__ == '__main__':
     """
     Sample the real system with this open-loop prediction
     """
+    np.random.seed(99)
     _ = open_loop_pred_samples_ss = sample_open_loop_prediction(ss_smpc, sid_res, n_samples = 50, reference_sys=ref_sys)
 
     _ = plot_open_loop_prediction_with_samples(ss_smpc, sid_res['ssm'], open_loop_pred_samples_ss)
@@ -489,25 +493,26 @@ if __name__ == '__main__':
     """
     ## Closed-loop simulation
     """
-    savepath = os.path.join('smpc_results')
-    savename = '02_ss_smpc_closed_loop_results_with_cov.pkl'
+    np.random.seed(99)
 
-    if False:
+    savepath = os.path.join('smpc_results')
+    savename = '04_ss_smpc_closed_loop_results_with_cov.pkl'
+
+    if os.path.exists(os.path.join(savepath, savename)):
+        print('Loading closed-loop results from file... make sure no settings have changed!')
+        with open(os.path.join(savepath, savename), 'rb') as f:
+            closed_loop_ss = pickle.load(f)
+    else:
         print('Sampling closed-loop results... (this may take a while)')
         closed_loop_ss = sample_closed_loop(ss_smpc, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
 
         with open(os.path.join(savepath, savename), 'wb') as f:
             pickle.dump(closed_loop_ss, f)
-    elif os.path.exists(os.path.join(savepath, savename)):
-        print('Loading closed-loop results from file... make sure no settings have changed!')
-        with open(os.path.join(savepath, savename), 'rb') as f:
-            closed_loop_ss = pickle.load(f)
-    else:
-        print('No closed-loop results found. Please run the sampling first.')
     # %%
 
     _ = plot_closed_loop_trajectory(closed_loop_ss)
     _ = plot_closed_loop_cons_detail(closed_loop_ss, ss_smpc)
+    get_closed_loop_kpis(closed_loop_ss, ss_smpc).mean()
     # %%
 
     # %% [markdown]
@@ -531,7 +536,7 @@ if __name__ == '__main__':
 
     # %%
 
-    fig, ax = plt.subplots(3,2, figsize=(config_mpl.textwidth, .38*config_mpl.textwidth), 
+    fig, ax = plt.subplots(3,2, figsize=(plotconfig.textwidth, .38*plotconfig.textwidth), 
         sharex=True, sharey='row', dpi=150,
         gridspec_kw = {'width_ratios':[1, 1], 'height_ratios':[2, 1, 1]}
         )
@@ -567,30 +572,23 @@ if __name__ == '__main__':
     ax[0,1].legend(handles=dummy_lines, loc='upper center', bbox_to_anchor=(0, 1.0), ncol=5, fontsize='small')
 
     dummy_lines = [
-        ax[0,0].plot([], [], color=config_mpl.colors[0], linestyle='none', marker='s', label='1')[0],
-        ax[0,0].plot([], [], color=config_mpl.colors[1], linestyle='none', marker='s', label='2')[0],
-        ax[0,0].plot([], [], color=config_mpl.colors[2], linestyle='none', marker='s', label='3')[0],
-        ax[0,0].plot([], [], color=config_mpl.colors[3], linestyle='none', marker='s', label='4')[0],
+        ax[0,0].plot([], [], color=plotconfig.colors[0], linestyle='none', marker='s', label='1')[0],
+        ax[0,0].plot([], [], color=plotconfig.colors[1], linestyle='none', marker='s', label='2')[0],
+        ax[0,0].plot([], [], color=plotconfig.colors[2], linestyle='none', marker='s', label='3')[0],
+        ax[0,0].plot([], [], color=plotconfig.colors[3], linestyle='none', marker='s', label='4')[0],
     ]
     ax[1,0].legend(handles=dummy_lines, loc='upper left', bbox_to_anchor=(0, 1.5), fontsize='small', title='room')
 
     savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
     savename = 'open_loop_pred_ms_vs_ss_smpc'
-    fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
+    if export_figures:
+        fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
 
     # %%
 
-    savepath = os.path.join('smpc_results')
-    savename_ss = '02_{}_smpc_closed_loop_results_with_cov.pkl'
-
-    with open(os.path.join(savepath, savename_ss.format('ss')), 'rb') as f:
-        closed_loop_ss = pickle.load(f)
-    with open(os.path.join(savepath, savename_ss.format('ms')), 'rb') as f:
-        closed_loop_ms = pickle.load(f)
-
     # %%
 
-    fig, ax = plt.subplots(3,2, figsize=(config_mpl.textwidth, .4*config_mpl.textwidth), 
+    fig, ax = plt.subplots(3,2, figsize=(plotconfig.textwidth, .4*plotconfig.textwidth), 
         sharex=True, sharey='row', dpi=150,
         gridspec_kw = {'width_ratios':[1, 1], 'height_ratios':[2, 1, 1]}
         )
@@ -611,16 +609,17 @@ if __name__ == '__main__':
     fig.tight_layout(pad=.1)
 
     dummy_lines = [
-        ax[0,0].plot([], [], color=config_mpl.colors[0], linestyle='none', marker='s', label='1')[0],
-        ax[0,0].plot([], [], color=config_mpl.colors[1], linestyle='none', marker='s', label='2')[0],
-        ax[0,0].plot([], [], color=config_mpl.colors[2], linestyle='none', marker='s', label='3')[0],
-        ax[0,0].plot([], [], color=config_mpl.colors[3], linestyle='none', marker='s', label='4')[0],
+        ax[0,0].plot([], [], color=plotconfig.colors[0], linestyle='none', marker='s', label='1')[0],
+        ax[0,0].plot([], [], color=plotconfig.colors[1], linestyle='none', marker='s', label='2')[0],
+        ax[0,0].plot([], [], color=plotconfig.colors[2], linestyle='none', marker='s', label='3')[0],
+        ax[0,0].plot([], [], color=plotconfig.colors[3], linestyle='none', marker='s', label='4')[0],
     ]
     ax[0,0].legend(handles=dummy_lines, loc='upper right', bbox_to_anchor=(1, 1.1), fontsize='small', title='room')
 
     savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
     savename = 'closed_loop_pred_ms_vs_ss_smpc'
-    fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
+    if export_figures:
+        fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
 
 
     # %% [markdown]
@@ -641,8 +640,7 @@ if __name__ == '__main__':
 
 
     # %%
-
-    fig, ax = plt.subplots(2,1, figsize=(config_mpl.columnwidth, config_mpl.columnwidth), sharex=True, dpi=150)
+    fig, ax = plt.subplots(2,1, figsize=(plotconfig.columnwidth, plotconfig.columnwidth), sharex=True, dpi=150)
 
     _,_,lines_ms = plot_closed_loop_cons_detail(closed_loop_ms_with_cov, ms_smpc_with_cov, fig_ax=(fig, ax[0]), with_annotations=False)
     _,_,lines_ss = plot_closed_loop_cons_detail(closed_loop_ms_wo_cov, ms_smpc_wo_cov, fig_ax=(fig, ax[1]), with_annotations=False)
@@ -655,14 +653,14 @@ if __name__ == '__main__':
     ax[0].set_title('MSM-SMPC w. full covariance estimation')
     ax[1].set_title('MSM-SMPC w. only variance estimation')
 
-    ax[0].set_ylabel('temp. room $t_1$ [°C]')
-    ax[1].set_ylabel('temp. room $t_1$ [°C]')
-    ax[1].set_xlabel('temp. room $t_2$ [°C]')
+    ax[0].set_ylabel('temp. room $T_1$ [°C]')
+    ax[1].set_ylabel('temp. room $T_1$ [°C]')
+    ax[1].set_xlabel('temp. room $T_2$ [°C]')
 
     lines_ms['cov0'].set_label('$\hat\mSigma_{r,k+1}$')
     lines_ms['covN'].set_label('$\hat\mSigma_{r,k+N}$')
 
-    ax[1].annotate(r'$t_1 - t_2 \geq 1$', xy=(19, 20), xytext=(19.5, 19.5), arrowprops=dict(facecolor='black', shrink=0.05, width=.1, headwidth=4, headlength=3))
+    ax[1].annotate(r'$T_1 - T_2 \geq 1$', xy=(19, 20), xytext=(19.5, 19.5), arrowprops=dict(facecolor='black', shrink=0.05, width=.1, headwidth=4, headlength=3))
 
     ax[0].legend(loc='lower right')
 
@@ -670,49 +668,47 @@ if __name__ == '__main__':
 
     savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
     savename = 'closed_loop_detail_ms_smpc_with_vs_wo_cov'
-    fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
+    if export_figures:
+        fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
     # %% [markdown]
     """
     ## Full sampling of the controller (SS and MS) with only variance information for KPI evaluation
     """
+    np.random.seed(99)
 
     ms_smpc_wo_cov = setup_controller(sid_res['msm'], smpc_settings_wo_cov)
     ss_smpc_wo_cov = setup_controller(sid_res['ssm'], smpc_settings_wo_cov)
 
     savepath = os.path.join('smpc_results')
-    savename = '02_ss_smpc_closed_loop_results_wo_cov.pkl'
+    savename = '04_ss_smpc_closed_loop_results_wo_cov.pkl'
 
-    if False:
+    if os.path.exists(os.path.join(savepath, savename)):
+        print(f'Loading closed-loop results from file {savename}... make sure no settings have changed!')
+        with open(os.path.join(savepath, savename), 'rb') as f:
+            closed_loop_ss_wo_cov = pickle.load(f)
+    else:
         print('Sampling closed-loop results... (this may take a while)')
         closed_loop_ss_wo_cov = sample_closed_loop(ss_smpc_wo_cov, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
 
         with open(os.path.join(savepath, savename), 'wb') as f:
             pickle.dump(closed_loop_ss_wo_cov, f)
-    elif os.path.exists(os.path.join(savepath, savename)):
+
+    savename = '04_ms_smpc_closed_loop_results_wo_cov.pkl'
+
+    if os.path.exists(os.path.join(savepath, savename)):
         print(f'Loading closed-loop results from file {savename}... make sure no settings have changed!')
         with open(os.path.join(savepath, savename), 'rb') as f:
-            closed_loop_ss_wo_cov = pickle.load(f)
+            closed_loop_ms_wo_cov = pickle.load(f)
     else:
-        print('No closed-loop results found. Please run the sampling first.')
-
-    savename = '02_ms_smpc_closed_loop_results_wo_cov.pkl'
-
-    if False:
         print('Sampling closed-loop results... (this may take a while)')
         closed_loop_ms_wo_cov = sample_closed_loop(ms_smpc_wo_cov, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
 
         with open(os.path.join(savepath, savename), 'wb') as f:
             pickle.dump(closed_loop_ms_wo_cov, f)
-    elif os.path.exists(os.path.join(savepath, savename)):
-        print(f'Loading closed-loop results from file {savename}... make sure no settings have changed!')
-        with open(os.path.join(savepath, savename), 'rb') as f:
-            closed_loop_ms_wo_cov = pickle.load(f)
-    else:
-        print('No closed-loop results found. Please run the sampling first.')
 
 
     # %%
-    fig, ax = plt.subplots(3,2, figsize=(config_mpl.textwidth, .4*config_mpl.textwidth), 
+    fig, ax = plt.subplots(3,2, figsize=(plotconfig.textwidth, .4*plotconfig.textwidth), 
         sharex=True, sharey='row', dpi=150,
         gridspec_kw = {'width_ratios':[1, 1], 'height_ratios':[2, 1, 1]}
         )
@@ -757,7 +753,7 @@ if __name__ == '__main__':
         # column_format='p{2.5cm}'+'X'*(len(df.columns)),
     )
 
-    tex_str = tex_str.replace('sum\\_of\\_control\\_action', r'$\bar{q}$ [kWh]')
+    tex_str = tex_str.replace('sum\\_of\\_control\\_action', r'$\sum_i Q_i$ [kWh]')
     tex_str = tex_str.replace('cons\\_viol\\_perc', r'cons. viol. [\%]')
 
 
