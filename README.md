@@ -5,7 +5,7 @@
 Dear reader,
 
 welcome to this repository. You'll find here the code that was created to produce the results for our work "Stochastic MPC with multi-step predictors and covariance estimation via Bayesian linear regression".
-Please don't hesitate to write us a message, if you have any questions. If you questions is of concern to other users, we suggest you use the [discussions tab](https://github.com/4flixt/2023_Stochastic_MSM/discussions).
+Please don't hesitate to write us a message, if you have any questions. If your questions is of concern to other users, we suggest you use the [discussions tab](https://github.com/4flixt/2023_Stochastic_MSM/discussions).
 To better understand the structure of this repository and our code please read the overview below.
 
 ## Structure
