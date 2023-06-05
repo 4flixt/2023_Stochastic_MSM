@@ -1,0 +1,25 @@
+name: env
+channels:
+  - default
+  - conda-forge
+dependencies:
+  - python=3.10
+  - casadi=3.6.*
+  - numpy
+  - scipy
+  - scikit-learn
+  - matplotlib
+  - pandas
+  - pip
+  - ipython
+  - jupyter
+  - conda-build
+
+
+  # install locally with:
+  # conda env create --prefix ./.conda -f .conda_environment.yml  
+
+  # Activate envornment with:
+  # conda activate ./.conda
+  # Add do-mpc:
+  # conda develop /PATH/TO/do-mpc
