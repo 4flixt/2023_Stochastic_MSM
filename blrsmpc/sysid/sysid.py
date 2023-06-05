@@ -17,6 +17,7 @@ from blrsmpc import helper
 class SystemType(Enum):
     TRIPLE_MASS_SPRING = auto()
     BUILDING = auto()
+    CSTR = auto()
 
 class SystemGenerator:
     """ Used to configure a system and generate new instances of it.
@@ -52,6 +53,32 @@ class SystemGenerator:
 
         return sys
 
+    def cstr(self, x0=None, state_feedback=True) -> system.System:
+        cstr_model = system.cstr.get_CSTR_model()
+        cstr_sim = system.cstr.get_CSTR_simulator(cstr_model)
+
+        def rhs_func(x: np.ndarray, u:np.ndarray) -> np.ndarray:
+            cstr_sim.x0 = x
+            
+            x_next = cstr_sim.make_step(u)
+
+            return x_next
+
+        def meas_func(x: np.ndarray, u:np.ndarray) -> np.ndarray:
+            C_B_ind = 1
+            T_K_ind = 3
+
+            y = x[[C_B_ind, T_K_ind]]
+
+            return y
+        
+        if x0 is None:
+            x0 = np.random.uniform(system.cstr.CSTR_BOUNDS['x_lb'], system.cstr.CSTR_BOUNDS['x_ub'])
+        
+        sys = system.System(rhs_func, meas_func, x0=x0, u0=np.zeros((2,1)), sig_x=self.sig_x, sig_y=self.sig_y, dt=self.dt)
+
+        return sys
+
     def building_system(self, x0=None, state_feedback=True):
         A, B, C = system.building_system.get_ABC()
 
@@ -78,6 +105,8 @@ class SystemGenerator:
             return self.triple_mass_spring(**self.case_kwargs)
         elif self.sys_type == SystemType.BUILDING:
             return self.building_system(**self.case_kwargs)
+        elif self.sys_type == SystemType.CSTR:
+            return self.cstr(**self.case_kwargs)
         else:
             raise NotImplementedError('Unknown system type.')
 
