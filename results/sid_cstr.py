@@ -10,6 +10,7 @@ import casadi as cas
 import pdb
 import matplotlib.pyplot as plt
 import importlib
+import pathlib
 
 # Get colors
 import matplotlib as mpl
@@ -32,10 +33,10 @@ cstr_sim = cstr.get_CSTR_simulator(cstr_model, cstr.T_STEP_CSTR)
 
 settings = {
     'N': 20,
-    'T_ini': 3,
-    'train_samples': 500,
-    'test_samples': 300, 
-    'state_feedback': False,
+    'T_ini': 1,
+    'train_samples': 800,
+    'test_samples': 50, 
+    'state_feedback': True,
 }
 
 sys_generator = sid.SystemGenerator(
@@ -43,48 +44,64 @@ sys_generator = sid.SystemGenerator(
     dt= cstr.T_STEP_CSTR,
 )
 
-data_gen_setup = sid.DataGeneratorSetup(
+data_train_setup = sid.DataGeneratorSetup(
     T_ini=settings['T_ini'],
     N=settings['N'],
     n_samples=settings['train_samples'],
 )
+data_test_setup = sid.DataGeneratorSetup(
+    T_ini=settings['T_ini'],
+    N=settings['N'],
+    n_samples=settings['test_samples'],
+)
+
 # Class that generates a pseudo-random input signal
 random_input = sid.RandomInput(
     n_u=2, 
     u_lb = cstr.CSTR_BOUNDS['u_lb'],
     u_ub = cstr.CSTR_BOUNDS['u_ub'],
-    switch_prob=.3
+    switch_prob=.6
 )
 
-data = sid.DataGenerator(sys_generator, data_gen_setup, random_input)
+data_train = sid.DataGenerator(sys_generator, data_train_setup, random_input)
+data_test  = sid.DataGenerator(sys_generator, data_test_setup, random_input)
+print(f'Number of inputs: {data_train.n_u}')
+print(f'Number of outputs: {data_train.n_y}')
+
 # %%
-msm = sid.MultistepModel(estimate_covariance=True, scale_x=True, scale_y=True, add_bias=True)
-msm.fit(data)
-ssm = sid.StateSpaceModel(estimate_covariance=True, add_bias=True)
-ssm.fit(data)
+fig, ax = plt.subplots(2,1, sharex=True)
+
+for i in range(data_train.n_u):
+    ax[i].step(data_train.sim_results[0].time, data_train.sim_results[0].u[:,i], where='post')
+
+# %%
+msm = sid.MultistepModel(estimate_covariance=True, scale_x=True, scale_y=True, add_bias=False)
+msm.fit(data_train)
+ssm = sid.StateSpaceModel(estimate_covariance=True, scale_x=True, scale_y=True, add_bias=False)
+ssm.fit(data_train)
 # %%
 
 n_traj = 10
 n_sig = 3
 
-fig, ax = plt.subplots(n_traj, data.n_y, sharex=True, figsize=(5,10))
+fig, ax = plt.subplots(n_traj, data_train.n_y, sharex=True, figsize=(8,10))
 
 for k in range(n_traj):
 
     test_case = k
 
-    y_msm_pred, y_msm_pred_std = msm.predict(data.M[:,[test_case]].T, uncert_type="std", with_noise_variance=True)
-    y_msm_pred = y_msm_pred.reshape(-1, data.n_y)
-    y_msm_pred_std = y_msm_pred_std.reshape(-1, data.n_y)
-    y_ssm_pred, y_ssm_pred_std = ssm.predict_sequence(data.M[:,[test_case]], with_noise_variance=True)
-    y_ssm_pred = y_ssm_pred.reshape(-1, data.n_y)
-    y_ssm_pred_std = y_ssm_pred_std.reshape(-1, data.n_y)
-    y_true  = data.Y_N[:,test_case].reshape(-1, data.n_y)
+    y_msm_pred, y_msm_pred_std = msm.predict(data_test.M[:,[test_case]].T, uncert_type="std", with_noise_variance=True)
+    y_msm_pred = y_msm_pred.reshape(-1, data_test.n_y)
+    y_msm_pred_std = y_msm_pred_std.reshape(-1, data_test.n_y)
+    y_ssm_pred, y_ssm_pred_std = ssm.predict_sequence(data_test.M[:,[test_case]], with_noise_variance=True)
+    y_ssm_pred = y_ssm_pred.reshape(-1, data_test.n_y)
+    y_ssm_pred_std = y_ssm_pred_std.reshape(-1, data_test.n_y)
+    y_true  = data_test.Y_N[:,test_case].reshape(-1, data_test.n_y)
 
     t = np.arange(y_true.shape[0]) * cstr.T_STEP_CSTR
 
 
-    for i in range(data.n_y):
+    for i in range(data_train.n_y):
         ax[k,i].plot(t, y_msm_pred[:,i], label='MSM')
         # ax[k,i].plot(t, y_ssm_pred[:,i], label='SSM')
         ax[k,i].plot(t, y_true[:,i], label='True')
@@ -92,9 +109,31 @@ for k in range(n_traj):
         # ax[k,i].fill_between(t, y_ssm_pred[:,i] - n_sig*y_ssm_pred_std[:,i], y_ssm_pred[:,i] + n_sig*y_ssm_pred_std[:,i], alpha=.5)
 
 
-ax[0,0].set_title('c_B')
-ax[0,1].set_title('T_K')
+# ax[0,0].set_title('c_B')
+# ax[0,1].set_title('T_R')
 
+# %%
+fig  = plt.figure(figsize=(8,6))
+plt.spy(msm.blr.W.T)
+
+msm.blr.W.T[:,-1]
+
+# %%
+
+
+result_dir = os.path.join('sid_results')
+save_name = "02_cstr_prediction_model.pkl"
+save_name = os.path.join(result_dir, save_name)
+
+pathlib.Path(result_dir).mkdir(parents=True, exist_ok=True)
+
+with open(save_name, "wb") as f:
+    res = {'msm': msm, 'ssm': ssm}
+    pickle.dump(res, f)
+
+# %%
+with open(save_name, "rb") as f:
+    res = pickle.load(f)
 # %%
 np.linalg.eig(ssm.LTI.A)[0]
 # %%
