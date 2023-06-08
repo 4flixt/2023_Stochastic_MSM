@@ -23,19 +23,34 @@ class MultiStepSMPC(base.SMPCBase):
     def __init__(self, sid_model: sid.MultistepModel, settings: base.SMPCSettings):
         super().__init__(sid_model, settings)
     
-    def get_covariance(self, m: cas.SX) -> cas.SX:
+    def msm_prediction(self, m: cas.SX) -> cas.SX:
+        # Prepare Sigma_e
         Sigma_e = copy.copy(self.sid_model.blr.Sigma_e)
         Sigma_e[np.abs(Sigma_e)<1e-9] = 0
 
         if not self.settings.with_cov:
             Sigma_e = np.diag(np.diag(Sigma_e))
 
+        # Prepare m
+        if self.sid_model.blr.state['scale_x']:
+            mu_x = self.sid_model.blr.scaler_x.mean_
+            s_x = self.sid_model.blr.scaler_x.scale_
+
+            m = (m - mu_x)/s_x
+
         if self.sid_model.blr.state['add_bias']:
-            m = cas.vertcat(1, m)
+            m = cas.vertcat(m, 1)
 
-        Sigma_y_pred = (Sigma_e*(m.T@self.sid_model.blr.Sigma_p_bar@m)+ Sigma_e)
+        y_pred_scaled = self.sid_model.blr.W.T@m
 
-        return Sigma_y_pred
+        Sigma_y_pred_scaled = (Sigma_e*(m.T@self.sid_model.blr.Sigma_p_bar@m)+ Sigma_e)
+
+        if self.sid_model.blr.state['scale_y']:
+            S_y = np.diag(self.sid_model.blr.scaler_y.scale_)
+            y_pred = S_y@y_pred_scaled + self.sid_model.blr.scaler_y.mean_
+            Sigma_y_pred = S_y@Sigma_y_pred_scaled@S_y.T
+
+        return y_pred, Sigma_y_pred
 
 
     def setup(self):
@@ -59,9 +74,8 @@ class MultiStepSMPC(base.SMPCBase):
 
         m = cas.vertcat(*opt_p['y_past'], *opt_p['u_past'], *opt_x['u_pred'])
 
-        y_pred_calc = self.sid_model.blr.W.T@m
         y_pred = cas.vertcat(*opt_x['y_pred'])
-        Sigma_y_pred = self.get_covariance(m)
+        y_pred_calc, Sigma_y_pred = self.msm_prediction(m)
 
         
         """ Constraints """
@@ -89,7 +103,7 @@ class MultiStepSMPC(base.SMPCBase):
 
         for k in range(self.sid_model.data_setup.N-1):
             dy_k = opt_x['y_pred', k] - opt_p['y_set', k]
-            obj += dy_k.T@self.Q@dy_k
+            obj += dy_k.T@self.Q@dy_k + dy_k.T@self.c
             u_k = opt_x['u_pred', k]
             obj += u_k.T@self.R@u_k
 
@@ -98,7 +112,7 @@ class MultiStepSMPC(base.SMPCBase):
 
 
         dy_N = opt_x['y_pred', -1] - opt_p['y_set', -1]
-        obj += dy_N.T@self.P@dy_N
+        obj += dy_N.T@self.P@dy_N + dy_N.T@self.c
 
         u_N = opt_x['u_pred', -1]
         obj += u_N.T@self.R@u_N
@@ -122,6 +136,8 @@ class MultiStepSMPC(base.SMPCBase):
         self.opt_aux_num = opt_aux_expr(0)
         self.opt_p_num = opt_p(0)
         self.opt_x_num = opt_x(0)
+
+        self.opt_x = opt_x
 
         self.flags.SETUP_NLP = True
 

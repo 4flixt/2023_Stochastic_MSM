@@ -117,7 +117,7 @@ class StateSpaceSMPC(base.SMPCBase):
 
         for k in range(self.sid_model.data_setup.N-1):
             dy_k = opt_x['y_pred', k] - opt_p['y_set', k]
-            obj += dy_k.T@self.Q@dy_k
+            obj += dy_k.T@self.Q@dy_k +  dy_k.T@self.c
             u_k = opt_x['u_pred', k]
             obj += u_k.T@self.R@u_k
 
@@ -126,7 +126,7 @@ class StateSpaceSMPC(base.SMPCBase):
 
 
         dy_N = opt_x['y_pred', -1] - opt_p['y_set', -1]
-        obj += dy_N.T@self.P@dy_N
+        obj += dy_N.T@self.P@dy_N + dy_N.T@self.c
 
         u_N = opt_x['u_pred', -1]
         obj += u_N.T@self.R@u_N
