@@ -33,9 +33,15 @@ from typing import Dict
 CSTR_BOUNDS = {
     'x_lb': np.array([0.1, 0.1, 50., 50.]).reshape(-1,1),
     'x_ub': np.array([2.0, 2.0, 135., 140.]).reshape(-1,1),
-    'u_lb': np.array([5.0, -8500.]).reshape(-1,1),
-    'u_ub': np.array([100.0, 0.]).reshape(-1,1),
+    'u_lb': np.array([5.0, -8.5]).reshape(-1,1),
+    'u_ub': np.array([40.0, 0.]).reshape(-1,1),
 }
+
+CSTR_SAMPLE_BOUNDS = {
+    'x_lb': np.array([0.4, 0.4, 110., 110.]).reshape(-1,1),
+    'x_ub': np.array([1.3, 1.3, 135., 140.]).reshape(-1,1),
+}
+
 """
 Bounds for the CSTR system.
 - x_lb: lower bound for the states
@@ -51,7 +57,7 @@ Order of states
 
 Order of inputs
 - F: Flow rate
-- Q: Heat removed from coolant.
+- Q: Heat removed from coolant. [kW]
 """
 
 T_STEP_CSTR = 0.005 # h
@@ -95,7 +101,8 @@ def get_CSTR_model() -> do_mpc.model.Model:
 
     # Input struct (optimization variables):
     F = model.set_variable(var_type='_u', var_name='F')
-    Q_dot = model.set_variable(var_type='_u', var_name='Q_dot')
+    Q_dot_mw = model.set_variable(var_type='_u', var_name='Q_dot') # Heat removed from coolant. [MW]
+    Q_dot = Q_dot_mw * 1000.0 # Heat removed from coolant. [kW]
 
     # Fixed parameters:
     alpha = model.set_variable(var_type='_p', var_name='alpha')
