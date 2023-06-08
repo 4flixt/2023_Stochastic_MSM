@@ -139,8 +139,23 @@ class SMPCBase:
                     Q: np.ndarray, 
                     R: Optional[np.ndarray] = None,
                     delR: Optional[np.ndarray] = None, 
-                    P: Optional[np.ndarray] = None
+                    P: Optional[np.ndarray] = None,
+                    c: Optional[np.ndarray] = None,
                     ):
+    
+        """
+        Cost function:
+
+        ::
+
+            dx = (x - x_s)
+            du = (u - u_prev)
+
+            J(x,u) = dx.T@Q@dx + c.T@x + u.T@R@u + du.T@delR@du 
+
+            m(x) = dx.T@P@dx + c.T@x
+        
+        """
 
         if Q.shape != (self.sid_model.n_y, self.sid_model.n_y):
             raise ValueError("Q must be a square matrix with shape (n_y, n_y)")
@@ -156,11 +171,16 @@ class SMPCBase:
             P = Q
         elif P.shape != (self.sid_model.n_y, self.sid_model.n_y):
             raise ValueError("P must be a square matrix with shape (n_y, n_y)")
+        if c is None:
+            c = np.zeros((self.sid_model.n_y, 1))
+        elif c.shape != (self.sid_model.n_y, 1):
+            raise ValueError("c must be a column vector with shape (n_y, 1)")
 
         self.Q = Q
         self.R = R
         self.delR = delR
         self.P = P
+        self.c = c
 
         self.flags.SET_OBJECTIVE = True
 
