@@ -54,7 +54,7 @@ class SystemGenerator:
 
         return sys
 
-    def cstr(self, x0=None, state_feedback=True) -> system.System:
+    def cstr(self, x0=None, state_feedback=False) -> system.System:
         cstr_model = system.cstr.get_CSTR_model()
         cstr_sim = system.cstr.get_CSTR_simulator(cstr_model)
 
@@ -324,11 +324,8 @@ class StateSpaceModel:
             **kwargs
             )
         
-        if self.blr.add_bias:
-            raise ValueError('State space model does not support BLR with bias.')
-
-        # if self.blr.scale_x or self.blr.scale_y or self.blr.add_bias:
-        #     raise ValueError('State space model does not support BLR with scaling or bias.')
+        # if self.blr.add_bias:
+        #     raise ValueError('State space model does not support BLR with bias.')
 
     def fit(self, data: DataGenerator):
 
@@ -344,8 +341,9 @@ class StateSpaceModel:
 
         W, W0 = self._include_scaling_and_bias()
 
-        arx = system.ARX(W, b=W0, l=self.data_setup.T_ini, y0=y0, u0=u0, dt=self.data_setup.dt)
-        self.LTI = arx.convert_to_state_space()
+        self.arx = system.ARX(W, W0=W0, l=self.data_setup.T_ini, y0=y0, u0=u0, dt=self.data_setup.dt)
+        self.LTI = self.arx.convert_to_state_space()
+        self.LTI.P0_x = np.eye(self.LTI.n_x) * 1e-6
 
     def predict(self, *args, **kwargs):
         return self.blr.predict(*args, **kwargs)
@@ -386,11 +384,57 @@ class StateSpaceModel:
             m_y = np.zeros((self.blr.n_y, 1))
 
         W = S_y @ W @ S_x_inv
-        W0 = m_y - S_y @ W @ S_x_inv @ m_x +S_y @ W0
-        # pdb.set_trace()
+        W0 = m_y - W @ m_x + S_y @ W0
+
 
         return W, W0
+    
 
+    def predict_sequence_arx(self, m):
+        T_ini = self.data_setup.T_ini
+        L = self.data_setup.L
+        N = self.data_setup.N
+
+        number_input_predictions = (N+1 )* self.n_u
+
+        y_arr = m[:-number_input_predictions].reshape(T_ini, self.n_y)
+        u_arr = m[-number_input_predictions:].reshape(L, self.n_u)
+
+        for k in range(N):
+            arx_in = np.concatenate((
+                y_arr[k:k+T_ini].reshape(-1,1),
+                u_arr[k:k+T_ini].reshape(-1,1),
+                ), axis=0)
+            # pdb.set_trace()
+            
+            y_next, _ = self.predict(arx_in.T)
+            y_arr = np.concatenate((y_arr, y_next.reshape(1,-1)), axis=0)
+
+        return y_arr
+    
+    def predict_sequence_arx_02(self, m):
+        T_ini = self.data_setup.T_ini
+        L = self.data_setup.L
+        N = self.data_setup.N
+
+        W, W0 = self._include_scaling_and_bias()
+
+        number_input_predictions = (N+1 )* self.n_u
+
+        y_arr = m[:-number_input_predictions].reshape(T_ini, self.n_y)
+        u_arr = m[-number_input_predictions:].reshape(L, self.n_u)
+
+        for k in range(N):
+            arx_in = np.concatenate((
+                y_arr[k:k+T_ini].reshape(-1,1),
+                u_arr[k:k+T_ini].reshape(-1,1),
+                ), axis=0)
+            # pdb.set_trace()
+            
+            y_next = W@arx_in + W0
+            y_arr = np.concatenate((y_arr, y_next.reshape(1,-1)), axis=0)
+
+        return y_arr
 
 
     def predict_sequence(self, m, **kwargs):
@@ -409,7 +453,7 @@ class StateSpaceModel:
             arx_in = np.concatenate((self.LTI.x0, u), axis=0)
             _, Q = self.predict(arx_in.T, uncert_type='cov', **kwargs)
 
-            self.LTI.make_step(u, Q, E=self.LTI.C.T, R=None)
+            self.LTI.make_step(u, Q=Q, E=self.LTI.C.T, R=None)
 
         x_seq = self.LTI.x[1:] # Remove initial condition
         P_seq = self.LTI.P_y[1:] # Remove initial condition
