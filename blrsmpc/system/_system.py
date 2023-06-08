@@ -5,6 +5,7 @@ import casadi as cas
 import casadi.tools as ctools
 from typing import Callable, Optional, Union, Tuple, List, Dict, Any
 
+
 _u_fun_type = Callable[[np.ndarray, float], np.ndarray]
  
 
@@ -231,7 +232,7 @@ class LTISystem(System):
         sig_y (float): Standard deviation of measurement noise. Defaults to 0.
         sig_x (float): Standard deviation of process noise. Defaults to 0.
     """
-    def __init__(self,A,B,C, D=None, x0=None, u0=None, P0=None, dt=1, t_now=0, sig_y = 0, sig_x=0):
+    def __init__(self,A,B,C, D=None, x0=None, u0=None, P0=None, dt=1, t_now=0, sig_y = 0, sig_x=0, offset=None):
         self.A = A
         self.B = B
         self.C = C
@@ -248,15 +249,16 @@ class LTISystem(System):
             self.D = D
 
         meas_func = get_linear_function(C,D)
-        rhs_func = get_linear_function(A,B)
+        rhs_func = get_linear_function(A,B, offset)
 
         super().__init__(rhs_func, meas_func, x0=x0, u0=u0, dt=dt, t_now=t_now, sig_y=sig_y, sig_x=sig_x)
 
-        self.P0_x = P0
-        if P0 is not None:
-            self.P0_y = self.C@P0@self.C.T
+        if P0 is None:
+            self.P0_x = np.zeros(A.shape)
         else:
-            self.P0_y = None
+            self.P0_x = P0
+        self.P0_y = self.C@self.P0_x@self.C.T
+
 
         self._P_x = []
         self._P_y = []
@@ -282,9 +284,11 @@ class LTISystem(System):
             if R is None:
                 R = 0*np.eye(self.C.shape[0])
 
-            self.P0_x = self.A@self.P0_x@self.A.T + E@Q@E.T
-            self.P0_y = self.C@self.P0_x@self.C.T + R
-        
+            P0_x = (self.P0_x + self.P0_x.T)/2 # Make sure P0_x is symmetric
+
+            self.P0_x = self.A@P0_x@self.A.T + E@Q@E.T
+            self.P0_y = self.C@P0_x@self.C.T + R
+
     def simulate(self, 
             u_fun: Callable[[np.ndarray, float], np.ndarray], 
             N: int = 1,
@@ -341,12 +345,15 @@ class LTISystem(System):
         self.meas_func = get_linear_function(self.C, self.D)
 
 
-def get_linear_function(A,B):
+def get_linear_function(A,B, offset=None):
     """
     Returns a function that takes in a state x 
     """
+    if offset is None:
+        offset = np.zeros((A.shape[0],1))
+
     def f(x,u):
-        return A@x + B@u
+        return A@x + B@u + offset
     return f
 
 class NARX(System):
@@ -413,16 +420,39 @@ class NARX(System):
 
 
 class ARX(NARX):
-    def __init__(self, W, l, y0, u0, dt, b=None, t_now=0):
+    def __init__(self, 
+                W: np.ndarray, 
+                l: int, 
+                y0: np.ndarray, 
+                u0: np.ndarray, 
+                dt: float = 1, 
+                W0: Optional[np.ndarray] = None, 
+                t_now: float = 0.0
+            ):
+        """
+        ARX system of the form:
+        ::
+            y_k+1 = W @ [y(k-l), y(k-l+1), ..., y(k), u(k-l), u(k-l+1), ..., u(k)]] + W0
+            t_k+1 = t_k + dt
+
+        Args:
+            W: Weight matrix of shape (n_y, l*(n_y+n_u))
+            l: Number of past samples to use in the model.
+            y0: Initial output.
+            u0: Initial input.
+            dt: Time step.
+            W0: Constant offset.
+            t_now: Initial time.
+        """
 
         if not isinstance(W, np.ndarray):
             raise TypeError(f"W must be a numpy array, but is {type(W)}.")
         if W.ndim != 2:
             raise ValueError(f"W must be a 2D array, but is {W.ndim}D.")
-        if b is None:
-            b = np.zeros((W.shape[0],1))
-        elif b.shape != (W.shape[0],1):
-            raise ValueError(f"b must have shape ({W.shape[0]}, 1), but has shape {b.shape}.")
+        if W0 is None:
+            W0 = np.zeros((W.shape[0],1))
+        elif W0.shape != (W.shape[0],1):
+            raise ValueError(f"b must have shape ({W.shape[0]}, 1), but has shape {W0.shape}.")
 
         narx_in_dim = l*(y0.shape[0] + u0.shape[0])
         narx_out_dim = y0.shape[0]
@@ -431,9 +461,10 @@ class ARX(NARX):
             raise ValueError(f"W must have shape ({narx_out_dim}, {narx_in_dim}), but has shape {W.shape}.") 
 
         self.W = W
+        self.W0 = W0
 
         def narx_func(narx_in):
-            return W@narx_in + b
+            return W@narx_in + W0
 
 
         super().__init__(narx_func, l=l, y0=y0, u0=u0, dt=dt, t_now=t_now)
@@ -443,8 +474,8 @@ class ARX(NARX):
         """
         Converts an ARX model to a state space model.
         """
-        A_ARX, B_ARX, C_ARX = get_ABC_ARX(
-            self.W, self.narx_l, self.n_y, self.n_u, narx_out_dy = False
+        A_ARX, B_ARX, C_ARX, Offset_ARX = get_ABC_ARX(
+            self.W, self.W0, self.narx_l, self.n_y, self.n_u, narx_out_dy = False
         )
 
         if x0 is None:
@@ -452,10 +483,10 @@ class ARX(NARX):
         if u0 is None:
             u0 = np.zeros((B_ARX.shape[1],1))
 
-        return LTISystem(A_ARX, B_ARX, C_ARX, x0=x0, u0=u0, P0=P0, dt=self.dt)
+        return LTISystem(A_ARX, B_ARX, C_ARX, offset = Offset_ARX, x0=x0, u0=u0, P0=P0, dt=self.dt)
         
 
-def get_ABC_ARX(W, l, n_y, n_u, narx_out_dy = False):
+def get_ABC_ARX(W, W0, l, n_y, n_u, narx_out_dy = False):
     """
     For a (N)ARX model with history length l, state:
     [y(k-l), y(k-l+1), ..., y(k), u(k-l), u(k-l+1), ..., u(k-1)]
@@ -485,6 +516,10 @@ def get_ABC_ARX(W, l, n_y, n_u, narx_out_dy = False):
     x_arx_next = ctools.struct_SX(x_arx)
     x_arx_next["y", -1] = arx_out
 
+    x_arx_offset = x_arx(0)
+    x_arx_offset["y", -1] = W0
+    x_arx_offset = x_arx_offset.cat.full()
+
     if narx_out_dy:
         x_arx_next["y", -1] += x_arx["y", -1]
 
@@ -502,7 +537,8 @@ def get_ABC_ARX(W, l, n_y, n_u, narx_out_dy = False):
     B =cas.Function('b_fun', [x_arx], [cas.jacobian(x_arx_next, u_arx)])(x_arx(0)).full()
     C =cas.Function('c_fun', [x_arx], [cas.jacobian(x_arx, x_arx["y", -1])])(x_arx(0)).full().T
 
-    return A,B,C
+
+    return A,B,C, x_arx_offset
 
 
 def test():
@@ -526,30 +562,31 @@ def test_arx():
     """ 
 
     # 1. Create simple LTI system
-    sys_dc = sio.loadmat('sys_dc.mat')
-    A = sys_dc['A_dc']
-    B = sys_dc['B_dc']
-    C = sys_dc['C']
-    D = sys_dc['D']
+    A = np.array([[ 0.763,  0.460],
+              [-0.899,  0.763]])
 
-    sig_y = np.array([1e-2, 1e-2, 1e-2])
-    sig_x = 1e-4
+    B = np.array([[0.014],
+                [0.063]])
+
+    C = np.array([[1, 0]])
+    D = np.zeros((1,1))
+
+    sig_y = np.array([1e-2])
+    sig_x = np.array([1e-2, 1e-2])
 
     sys = LTISystem(A,B,C,D, sig_y=sig_y, sig_x=sig_x)
 
     # 2. Generate NARX i/o data from LTI system
-    u0 = np.zeros((2,1))
     sym_steps = 500
     l = 4
     max_amp = np.pi
     cooldown = 0.2
 
-
     for k in range(sym_steps,):
         if k<sym_steps*(1-cooldown):
-            u0 = random_u(u0, switch_prob=0.4, max_amp=max_amp)
+            u0 = np.random.uniform(-max_amp, max_amp, (1,1))
         else:
-            u0 = np.zeros((2,1))
+            u0 = np.zeros((1,1))
         sys.make_step(u0)
 
     narx_data = sys.narx_io(l=l, delta_y_out=False, return_type = 'numpy')
@@ -562,21 +599,25 @@ def test_arx():
         return W.T@narx_input
 
     # 5. Create NARX system with ARX function
-    narx_sys = NARX(narx_func, l, y0 = np.zeros((3,1)), u0 = np.zeros((2,1)))
+    narx_sys = NARX(narx_func, l, y0 = np.zeros((1,1)), u0 = np.zeros((1,1)))
 
     # 6. Compare NARX system output to LTI system output
     sys.reset()
     for k in range(100):
         if k<sym_steps*(1-cooldown):
-            u0 = random_u(u0, switch_prob=0.4, max_amp=max_amp)
+            u0 = np.random.uniform(-max_amp, max_amp, (1,1))
         else:
-            u0 = np.zeros((2,1))
+            u0 = np.zeros((1,1))
         narx_sys.make_step(u0)
         sys.make_step(u0)
     
 
-    fig, ax = plt.subplots(3,1, sharex=True)
-    for k in range(3):
+    fig, ax = plt.subplots(1,1, sharex=True)
+
+    if narx_sys.y.shape[1] == 1:
+        ax = [ax]
+
+    for k in range(narx_sys.y.shape[1]):
         ax[k].plot(narx_sys.y[:,k], label='narx')
         ax[k].plot(sys.y[:,k], label='sys')
     
