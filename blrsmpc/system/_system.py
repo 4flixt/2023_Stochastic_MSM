@@ -77,7 +77,8 @@ class System:
 
     def simulate(self, 
             u_fun: Callable[[np.ndarray, float], np.ndarray], 
-            N: int = 1
+            N: int = 1,
+            callbacks: Optional[List[Callable]] = None,
             ):
         """
         Simulate the system for N steps using the input function u_fun.
@@ -85,6 +86,9 @@ class System:
         for k in range(N):
             u = u_fun(self.x0, self.t_now)
             self.make_step(u)
+            if callbacks is not None:
+                for callback in callbacks:
+                    callback(self)
 
         return self
 
@@ -409,12 +413,16 @@ class NARX(System):
 
 
 class ARX(NARX):
-    def __init__(self, W, l, y0, u0, dt, t_now=0):
+    def __init__(self, W, l, y0, u0, dt, b=None, t_now=0):
 
         if not isinstance(W, np.ndarray):
             raise TypeError(f"W must be a numpy array, but is {type(W)}.")
         if W.ndim != 2:
             raise ValueError(f"W must be a 2D array, but is {W.ndim}D.")
+        if b is None:
+            b = np.zeros((W.shape[0],1))
+        elif b.shape != (W.shape[0],1):
+            raise ValueError(f"b must have shape ({W.shape[0]}, 1), but has shape {b.shape}.")
 
         narx_in_dim = l*(y0.shape[0] + u0.shape[0])
         narx_out_dim = y0.shape[0]
@@ -425,7 +433,7 @@ class ARX(NARX):
         self.W = W
 
         def narx_func(narx_in):
-            return W@narx_in
+            return W@narx_in + b
 
 
         super().__init__(narx_func, l=l, y0=y0, u0=u0, dt=dt, t_now=t_now)
