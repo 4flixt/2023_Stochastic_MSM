@@ -42,6 +42,7 @@ settings = {
 sys_generator = sid.SystemGenerator(
     sys_type=sid.SystemType.CSTR,
     dt= cstr.T_STEP_CSTR,
+    case_kwargs={'state_feedback': settings['state_feedback']},
 )
 
 data_train_setup = sid.DataGeneratorSetup(
@@ -68,23 +69,28 @@ data_test  = sid.DataGenerator(sys_generator, data_test_setup, random_input)
 print(f'Number of inputs: {data_train.n_u}')
 print(f'Number of outputs: {data_train.n_y}')
 
-# %%
-fig, ax = plt.subplots(2,1, sharex=True)
-
-for i in range(data_train.n_u):
-    ax[i].step(data_train.sim_results[0].time, data_train.sim_results[0].u[:,i], where='post')
 
 # %%
+
+
 msm = sid.MultistepModel(estimate_covariance=True, scale_x=True, scale_y=True, add_bias=False)
 msm.fit(data_train)
+# %%
+importlib.reload(sid)
 ssm = sid.StateSpaceModel(estimate_covariance=True, scale_x=True, scale_y=True, add_bias=False)
 ssm.fit(data_train)
+
+# %%
+def lpd(y_true, y_pred, y_pred_std):
+    return -0.5 * np.log(2*np.pi*y_pred_std**2) - 0.5 * (y_true - y_pred)**2 / y_pred_std**2
+
+
 # %%
 
-n_traj = 10
+n_traj = 5
 n_sig = 3
 
-fig, ax = plt.subplots(n_traj, data_train.n_y, sharex=True, figsize=(8,10))
+fig, ax = plt.subplots(data_train.n_y, n_traj, sharex=True, sharey='row', figsize=(10, 10))
 
 for k in range(n_traj):
 
@@ -93,24 +99,39 @@ for k in range(n_traj):
     y_msm_pred, y_msm_pred_std = msm.predict(data_test.M[:,[test_case]].T, uncert_type="std", with_noise_variance=True)
     y_msm_pred = y_msm_pred.reshape(-1, data_test.n_y)
     y_msm_pred_std = y_msm_pred_std.reshape(-1, data_test.n_y)
+    
     y_ssm_pred, y_ssm_pred_std = ssm.predict_sequence(data_test.M[:,[test_case]], with_noise_variance=True)
     y_ssm_pred = y_ssm_pred.reshape(-1, data_test.n_y)
     y_ssm_pred_std = y_ssm_pred_std.reshape(-1, data_test.n_y)
+
+    # y_ssm_pred_var = ssm.predict_sequence_arx_02(data_test.M[:,[test_case]])[1:, :]
+
     y_true  = data_test.Y_N[:,test_case].reshape(-1, data_test.n_y)
 
     t = np.arange(y_true.shape[0]) * cstr.T_STEP_CSTR
 
 
     for i in range(data_train.n_y):
-        ax[k,i].plot(t, y_msm_pred[:,i], label='MSM')
-        # ax[k,i].plot(t, y_ssm_pred[:,i], label='SSM')
-        ax[k,i].plot(t, y_true[:,i], label='True')
-        ax[k,i].fill_between(t, y_msm_pred[:,i] - n_sig*y_msm_pred_std[:,i], y_msm_pred[:,i] + n_sig*y_msm_pred_std[:,i], alpha=.5)
-        # ax[k,i].fill_between(t, y_ssm_pred[:,i] - n_sig*y_ssm_pred_std[:,i], y_ssm_pred[:,i] + n_sig*y_ssm_pred_std[:,i], alpha=.5)
+        ax[i,k].plot(t, y_msm_pred[:,i], label='MSM')
+        ax[i,k].plot(t, y_ssm_pred[:,i], label='SSM')
+        # ax[i,k].plot(t, y_ssm_pred_var[:,i], label='SSM')
+        ax[i,k].plot(t, y_true[:,i], label='True', color='k')
+        ax[i,k].fill_between(t, y_msm_pred[:,i] - n_sig*y_msm_pred_std[:,i], y_msm_pred[:,i] + n_sig*y_msm_pred_std[:,i], alpha=.5)
+        ax[i,k].fill_between(t, y_ssm_pred[:,i] - n_sig*y_ssm_pred_std[:,i], y_ssm_pred[:,i] + n_sig*y_ssm_pred_std[:,i], alpha=.5)
 
+ax[0,0].legend()
+
+fig.tight_layout(pad=0.5)
 
 # ax[0,0].set_title('c_B')
 # ax[0,1].set_title('T_R')
+
+
+
+# %%
+np.diagonal(ssm.LTI.P_x, axis1=1, axis2=2)@ssm.LTI.C.T
+
+np.diagonal(ssm.LTI.P_y, axis1=1, axis2=2)
 
 # %%
 fig  = plt.figure(figsize=(8,6))
@@ -137,3 +158,6 @@ with open(save_name, "rb") as f:
 # %%
 np.linalg.eig(ssm.LTI.A)[0]
 # %%
+np.split(data_train.M[:,0], [data_train.setup.T_ini*data_train.n_y])
+# %%
+[]
