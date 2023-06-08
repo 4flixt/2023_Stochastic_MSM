@@ -343,7 +343,6 @@ class StateSpaceModel:
 
         self.arx = system.ARX(W, W0=W0, l=self.data_setup.T_ini, y0=y0, u0=u0, dt=self.data_setup.dt)
         self.LTI = self.arx.convert_to_state_space()
-        self.LTI.P0_x = np.eye(self.LTI.n_x) * 1e-6
 
     def predict(self, *args, **kwargs):
         return self.blr.predict(*args, **kwargs)
@@ -388,54 +387,6 @@ class StateSpaceModel:
 
 
         return W, W0
-    
-
-    def predict_sequence_arx(self, m):
-        T_ini = self.data_setup.T_ini
-        L = self.data_setup.L
-        N = self.data_setup.N
-
-        number_input_predictions = (N+1 )* self.n_u
-
-        y_arr = m[:-number_input_predictions].reshape(T_ini, self.n_y)
-        u_arr = m[-number_input_predictions:].reshape(L, self.n_u)
-
-        for k in range(N):
-            arx_in = np.concatenate((
-                y_arr[k:k+T_ini].reshape(-1,1),
-                u_arr[k:k+T_ini].reshape(-1,1),
-                ), axis=0)
-            # pdb.set_trace()
-            
-            y_next, _ = self.predict(arx_in.T)
-            y_arr = np.concatenate((y_arr, y_next.reshape(1,-1)), axis=0)
-
-        return y_arr
-    
-    def predict_sequence_arx_02(self, m):
-        T_ini = self.data_setup.T_ini
-        L = self.data_setup.L
-        N = self.data_setup.N
-
-        W, W0 = self._include_scaling_and_bias()
-
-        number_input_predictions = (N+1 )* self.n_u
-
-        y_arr = m[:-number_input_predictions].reshape(T_ini, self.n_y)
-        u_arr = m[-number_input_predictions:].reshape(L, self.n_u)
-
-        for k in range(N):
-            arx_in = np.concatenate((
-                y_arr[k:k+T_ini].reshape(-1,1),
-                u_arr[k:k+T_ini].reshape(-1,1),
-                ), axis=0)
-            # pdb.set_trace()
-            
-            y_next = W@arx_in + W0
-            y_arr = np.concatenate((y_arr, y_next.reshape(1,-1)), axis=0)
-
-        return y_arr
-
 
     def predict_sequence(self, m, **kwargs):
         """ Harmonized interface with MSM."""
