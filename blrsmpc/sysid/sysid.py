@@ -9,6 +9,7 @@ from casadi.tools import *
 from typing import Union, List, Dict, Tuple, Optional, Callable
 from dataclasses import dataclass
 from enum import Enum, auto
+import pdb
 
 from blrsmpc import system
 from blrsmpc.sysid import bayli
@@ -65,15 +66,18 @@ class SystemGenerator:
             return x_next
 
         def meas_func(x: np.ndarray, u:np.ndarray) -> np.ndarray:
-            C_B_ind = 1
-            T_K_ind = 3
 
-            y = x[[C_B_ind, T_K_ind]]
+            if state_feedback:
+                y = x
+            else:
+                C_B_ind = 1
+                T_R_ind = 2
+                y = x[[C_B_ind, T_R_ind]]
 
             return y
         
         if x0 is None:
-            x0 = np.random.uniform(system.cstr.CSTR_BOUNDS['x_lb'], system.cstr.CSTR_BOUNDS['x_ub'])
+            x0 = np.random.uniform(system.cstr.CSTR_SAMPLE_BOUNDS['x_lb'], system.cstr.CSTR_SAMPLE_BOUNDS['x_ub'])
         
         sys = system.System(rhs_func, meas_func, x0=x0, u0=np.zeros((2,1)), sig_x=self.sig_x, sig_y=self.sig_y, dt=self.dt)
 
@@ -100,7 +104,7 @@ class SystemGenerator:
         return sys
 
 
-    def __call__(self):
+    def __call__(self) -> system.System:
         if self.sys_type == SystemType.TRIPLE_MASS_SPRING:
             return self.triple_mass_spring(**self.case_kwargs)
         elif self.sys_type == SystemType.BUILDING:
@@ -164,7 +168,7 @@ class InputFromSequence:
 
     def __call__(self, x: Optional[np.ndarray] = None, t: Optional[float] = None):
         if self.infinite_loop: 
-            k = int(mod(self.running_index, self.m))
+            k = int(np.mod(self.running_index, self.m))
         elif self.running_index < self.m:
             k = self.running_index
         else:
@@ -264,13 +268,14 @@ class MultistepModel:
             **kwargs
         ):
         # Bias cannot be estimated.
-        kwargs.update(add_bias=False)
+        # kwargs.update(add_bias=False)
         self.blr = bayli.BayesianLinearRegression(
             **kwargs
         )
+        # if self.blr.add_bias:
+        #     raise ValueError('Multi-step model does not support BLR with scaling or bias.')
 
         # if self.blr.scale_x or self.blr.scale_y or self.blr.add_bias:
-        #     raise ValueError('Multi-step model does not support BLR with scaling or bias.')
 
     def get_sparsity(self, data: DataGenerator):
         mat_sparsity_sigma_e = np.kron(np.eye(data.setup.N), np.tril(np.ones((data.n_y, data.n_y)))) == 1
@@ -282,6 +287,11 @@ class MultistepModel:
         sparsity_matrix_T_ini = np.kron(np.ones((data.setup.N, data.setup.T_ini)), np.ones((data.n_y, data.n_u+data.n_y))).astype(bool)
         sparsity_matrix_N = np.kron(np.tril(np.ones((data.setup.N, data.setup.N))), np.ones((data.n_y, data.n_u))).astype(bool)
         sparsity_matrix = np.concatenate((sparsity_matrix_T_ini, sparsity_matrix_N), axis=1).astype(bool)
+
+        if self.blr.add_bias:
+            sparsity_matrix_bias = np.kron(np.ones((data.setup.N, 1)), np.ones((data.n_y, 1))).astype(bool)
+            sparsity_matrix = np.concatenate((sparsity_matrix, sparsity_matrix_bias), axis=1).astype(bool)
+
         sparsity_matrix = sparsity_matrix.T
 
         srow, scol = np.where(sparsity_matrix)
@@ -309,10 +319,13 @@ class StateSpaceModel:
             **kwargs
             ):
         # Bias cannot be estimated.
-        kwargs.update(add_bias=False)
+        # kwargs.update(add_bias=False)
         self.blr = bayli.BayesianLinearRegression(
             **kwargs
             )
+        
+        if self.blr.add_bias:
+            raise ValueError('State space model does not support BLR with bias.')
 
         # if self.blr.scale_x or self.blr.scale_y or self.blr.add_bias:
         #     raise ValueError('State space model does not support BLR with scaling or bias.')
@@ -329,11 +342,55 @@ class StateSpaceModel:
         y0 = np.zeros((data.n_y, 1))
         u0 = np.zeros((data.n_u, 1))
 
-        arx = system.ARX(self.blr.W.T, l=self.data_setup.T_ini, y0=y0, u0=u0, dt=self.data_setup.dt)
+        W, W0 = self._include_scaling_and_bias()
+
+        arx = system.ARX(W, b=W0, l=self.data_setup.T_ini, y0=y0, u0=u0, dt=self.data_setup.dt)
         self.LTI = arx.convert_to_state_space()
 
     def predict(self, *args, **kwargs):
         return self.blr.predict(*args, **kwargs)
+    
+    def _include_scaling_and_bias(self) -> np.ndarray:
+        """
+        If BLR was used with scaling and bias.
+
+        x_scaled = (x - x_mean) / x_scale
+        y_scaled = W.T @ x_scaled
+        y = y_scaled * y_scale + y_mean
+
+        y = W.T @ (x - x_mean) / x_scale * y_scale + y_mean
+        y = y_scale / x_scale * W.T @ x + (y_mean - y_scale / x_scale * W.T @ x_mean)
+
+        """
+
+        W = self.blr.W.T
+
+        if self.blr.add_bias:
+            W = W[:, :-1]
+            W0 = W[:, -1].reshape(-1,1)
+        else:
+            W0 = np.zeros((self.blr.n_y, 1))
+
+        if self.blr.scale_x:
+            S_x_inv = np.diag(1 / self.blr.scaler_x.scale_)
+            m_x = self.blr.scaler_x.mean_.reshape(-1,1)
+        else:
+            S_x_inv = np.eye(self.blr.n_x)
+            m_x = np.zeros((self.blr.n_x, 1))
+
+        if self.blr.scale_y:
+            S_y = np.diag(self.blr.scaler_y.scale_)
+            m_y = self.blr.scaler_y.mean_.reshape(-1,1)
+        else:
+            S_y = np.eye(self.blr.n_y)
+            m_y = np.zeros((self.blr.n_y, 1))
+
+        W = S_y @ W @ S_x_inv
+        W0 = m_y - S_y @ W @ S_x_inv @ m_x +S_y @ W0
+        # pdb.set_trace()
+
+        return W, W0
+
 
 
     def predict_sequence(self, m, **kwargs):
