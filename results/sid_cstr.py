@@ -31,6 +31,8 @@ cstr_sim = cstr.get_CSTR_simulator(cstr_model, cstr.T_STEP_CSTR)
 
 # %%
 
+np.random.seed(99)
+
 settings = {
     'N': 20,
     'T_ini': 3,
@@ -69,24 +71,24 @@ data_test  = sid.DataGenerator(sys_generator, data_test_setup, random_input)
 print(f'Number of inputs: {data_train.n_u}')
 print(f'Number of outputs: {data_train.n_y}')
 
-
 # %%
 
 msm = sid.MultistepModel(estimate_covariance=True, scale_x=True, scale_y=True, add_bias=False)
 msm.fit(data_train)
-# %%
-importlib.reload(sid)
+
 ssm = sid.StateSpaceModel(estimate_covariance=True, scale_x=True, scale_y=True, add_bias=False)
 ssm.fit(data_train)
 
 # %%
-def lpd(y_true, y_pred, y_pred_std):
-    return -0.5 * np.log(2*np.pi*y_pred_std**2) - 0.5 * (y_true - y_pred)**2 / y_pred_std**2
+def lpd(y_true, y_pred, Sigma_y):
+    dy = y_true - y_pred
+    out = -.5*np.prod(np.linalg.slogdet(2*np.pi*Sigma_y))-.5 * dy.T @ np.linalg.inv(Sigma_y) @ dy
 
+    return out
 
 # %%
 
-n_traj = 5
+n_traj = 4
 n_sig = 3
 
 if settings['state_feedback']:
@@ -100,21 +102,25 @@ for k in range(n_traj):
 
     test_case = k
 
-    y_msm_pred, y_msm_pred_std = msm.predict(data_test.M[:,[test_case]].T, uncert_type="std", with_noise_variance=True)
-    y_msm_pred = y_msm_pred.reshape(-1, data_test.n_y)
-    y_msm_pred_std = y_msm_pred_std.reshape(-1, data_test.n_y)
-    
-    y_ssm_pred, y_ssm_pred_std = ssm.predict_sequence(data_test.M[:,[test_case]], with_noise_variance=True)
-    y_ssm_pred = y_ssm_pred.reshape(-1, data_test.n_y)
-    y_ssm_pred_std = y_ssm_pred_std.reshape(-1, data_test.n_y)
+    y_msm_pred_vec, y_msm_pred_cov = msm.predict(data_test.M[:,[test_case]].T, uncert_type="cov", with_noise_variance=True)
+    y_msm_pred = y_msm_pred_vec.reshape(-1, data_test.n_y)
+    y_msm_pred_std = np.sqrt(np.diag(y_msm_pred_cov)).reshape(-1, data_test.n_y)
 
-    # y_ssm_pred_var = ssm.predict_sequence_arx_02(data_test.M[:,[test_case]])[1:, :]
+    y_ssm_pred_vec, y_ssm_pred_cov = ssm.predict_sequence(data_test.M[:,[test_case]], with_noise_variance=True, uncert_type="cov")
+    y_ssm_pred = y_ssm_pred_vec.reshape(-1, data_test.n_y)
+    y_ssm_pred_std = np.sqrt(np.diag(y_ssm_pred_cov)).reshape(-1, data_test.n_y)
+   
 
-    y_true  = data_test.Y_N[:,test_case].reshape(-1, data_test.n_y)
+    y_true_vec  = data_test.Y_N[:,test_case]
+    y_true = y_true_vec.reshape(-1, data_test.n_y)
+
+    lpd_msm = lpd(y_true.reshape(-1,1), y_msm_pred.reshape(-1,1), y_msm_pred_cov)
+    lpd_ssm = lpd(y_true.reshape(-1,1), y_ssm_pred.reshape(-1,1), y_ssm_pred_cov)
 
     t = np.arange(y_true.shape[0]) * cstr.T_STEP_CSTR
 
     ax[-1,k].set_xlabel('Time [h]')
+    ax[0,k].set_title('LPD MSM: {:.2f}\n LPD SSM: {:.2f}'.format(float(lpd_msm), float(lpd_ssm)))
 
 
     for i in range(data_train.n_y):
@@ -141,28 +147,10 @@ else:
 fig.tight_layout()
 
 
-
-
-
-
-
-
 # %%
-np.diagonal(ssm.LTI.P_x, axis1=1, axis2=2)@ssm.LTI.C.T
-
-np.diagonal(ssm.LTI.P_y, axis1=1, axis2=2)
-
-# %%
-fig  = plt.figure(figsize=(8,6))
-plt.spy(msm.blr.W.T)
-
-msm.blr.W.T[:,-1]
-
-# %%
-
 
 result_dir = os.path.join('sid_results')
-save_name = "02_cstr_prediction_model.pkl"
+save_name = "cstr_prediction_model_output_feedback.pkl"
 save_name = os.path.join(result_dir, save_name)
 
 pathlib.Path(result_dir).mkdir(parents=True, exist_ok=True)
@@ -175,8 +163,3 @@ with open(save_name, "wb") as f:
 with open(save_name, "rb") as f:
     res = pickle.load(f)
 # %%
-np.linalg.eig(ssm.LTI.A)[0]
-# %%
-np.split(data_train.M[:,0], [data_train.setup.T_ini*data_train.n_y])
-# %%
-[]
