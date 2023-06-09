@@ -284,10 +284,10 @@ class LTISystem(System):
             if R is None:
                 R = 0*np.eye(self.C.shape[0])
 
-            P0_x = (self.P0_x + self.P0_x.T)/2 # Make sure P0_x is symmetric
+            self.P0_x = (self.P0_x + self.P0_x.T)/2 # Make sure P0_x is symmetric
 
-            self.P0_x = self.A@P0_x@self.A.T + E@Q@E.T
-            self.P0_y = self.C@P0_x@self.C.T + R
+            self.P0_x = self.A@self.P0_x@self.A.T + E@Q@E.T
+            self.P0_y = self.C@self.P0_x@self.C.T + R
 
     def simulate(self, 
             u_fun: Callable[[np.ndarray, float], np.ndarray], 
