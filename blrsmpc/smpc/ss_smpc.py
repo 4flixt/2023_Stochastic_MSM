@@ -27,8 +27,12 @@ class StateSpaceSMPC(base.SMPCBase):
         self._prepare_covariance_propagation()
 
     def _prepare_covariance_propagation(self):
-        sys_A, sys_B, sys_C = system.get_ABC_ARX(
-            W = self.sid_model.blr.W.T,
+
+        W, W0 = self.sid_model._include_scaling_and_bias()
+
+        sys_A, sys_B, sys_C, sys_offset_ARX = system.get_ABC_ARX(
+            W = W,
+            W0 = W0,
             l = self.sid_model.data_setup.T_ini,
             n_y = self.sid_model.n_y,
             n_u = self.sid_model.n_u,
@@ -37,6 +41,14 @@ class StateSpaceSMPC(base.SMPCBase):
         self.sys_A = sys_A
         self.sys_B = sys_B
         self.sys_C = sys_C
+        self.sys_offset_ARX = sys_offset_ARX
+        self.sys_W = W
+        self.sys_W0 = W0
+
+        if self.sid_model.blr.state['scale_y']:
+            self.S_y = np.diag(self.sid_model.blr.scaler_y.scale_)
+        else:
+            self.S_y = np.eye(self.sid_model.n_y)
 
     def get_covariance(self, x_arx: cas.SX, P0) -> cas.SX:
         Sigma_e = self.sid_model.blr.Sigma_e
@@ -45,6 +57,8 @@ class StateSpaceSMPC(base.SMPCBase):
             Sigma_e = np.diag(np.diag(Sigma_e))
 
         Sigma_y_new = (Sigma_e*(x_arx.T@self.sid_model.blr.Sigma_p_bar@x_arx)+Sigma_e)
+        Sigma_y_new = self.S_y@Sigma_y_new@self.S_y.T
+
 
         P_next = self.sys_A@P0@self.sys_A.T + self.sys_C.T@Sigma_y_new@self.sys_C
 
@@ -86,7 +100,7 @@ class StateSpaceSMPC(base.SMPCBase):
 
         for k in range(self.sid_model.data_setup.N):
             xk = cas.vertcat(*y_seq[k:k+T_ini], *u_seq[k:k+T_ini])
-            yk_pred = self.sid_model.blr.W.T@xk
+            yk_pred = self.sys_W@xk + self.sys_W0
             self.cons.add_cons(yk_pred - opt_x['y_pred', k], 0, 0)
 
             Sigma_y_k, P0 = self.get_covariance(xk, P0)
