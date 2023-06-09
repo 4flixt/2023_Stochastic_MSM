@@ -347,16 +347,21 @@ class StateSpaceModel:
     def predict(self, *args, **kwargs):
         return self.blr.predict(*args, **kwargs)
     
-    def _include_scaling_and_bias(self) -> np.ndarray:
+    def _include_scaling_and_bias(self) -> Tuple[np.ndarray, np.ndarray]:
         """
-        If BLR was used with scaling and bias.
+        Returns the BLR weights and bias with scaling and bias included.
 
-        x_scaled = (x - x_mean) / x_scale
-        y_scaled = W.T @ x_scaled
-        y = y_scaled * y_scale + y_mean
+        ::
 
-        y = W.T @ (x - x_mean) / x_scale * y_scale + y_mean
-        y = y_scale / x_scale * W.T @ x + (y_mean - y_scale / x_scale * W.T @ x_mean)
+            x_scaled = (x - x_mean) / x_scale
+            y_scaled = W.T @ x_scaled
+            y = y_scaled * y_scale + y_mean
+
+            y = W.T @ (x - x_mean) / x_scale * y_scale + y_mean
+            y = y_scale / x_scale * W.T @ x + (y_mean - y_scale / x_scale * W.T @ x_mean)
+
+        Returns:
+            Weights and bias
 
         """
 
