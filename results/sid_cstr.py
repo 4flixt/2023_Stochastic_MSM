@@ -33,10 +33,10 @@ cstr_sim = cstr.get_CSTR_simulator(cstr_model, cstr.T_STEP_CSTR)
 
 settings = {
     'N': 20,
-    'T_ini': 1,
+    'T_ini': 3,
     'train_samples': 800,
     'test_samples': 50, 
-    'state_feedback': True,
+    'state_feedback': False,
 }
 
 sys_generator = sid.SystemGenerator(
@@ -72,7 +72,6 @@ print(f'Number of outputs: {data_train.n_y}')
 
 # %%
 
-
 msm = sid.MultistepModel(estimate_covariance=True, scale_x=True, scale_y=True, add_bias=False)
 msm.fit(data_train)
 # %%
@@ -90,7 +89,12 @@ def lpd(y_true, y_pred, y_pred_std):
 n_traj = 5
 n_sig = 3
 
-fig, ax = plt.subplots(data_train.n_y, n_traj, sharex=True, sharey='row', figsize=(10, 10))
+if settings['state_feedback']:
+    figsize = (8, 8)
+else:
+    figsize = (8, 4)
+
+fig, ax = plt.subplots(data_train.n_y, n_traj, sharex=True, sharey='row', figsize=figsize)
 
 for k in range(n_traj):
 
@@ -110,6 +114,8 @@ for k in range(n_traj):
 
     t = np.arange(y_true.shape[0]) * cstr.T_STEP_CSTR
 
+    ax[-1,k].set_xlabel('Time [h]')
+
 
     for i in range(data_train.n_y):
         ax[i,k].plot(t, y_msm_pred[:,i], label='MSM')
@@ -121,10 +127,23 @@ for k in range(n_traj):
 
 ax[0,0].legend()
 
-fig.tight_layout(pad=0.5)
+if settings['state_feedback']:
+    fig.suptitle('Identification with State feedback')
+    ax[0,0].set_ylabel('c_A [mol/L]')
+    ax[1,0].set_ylabel('c_B [mol/L]')
+    ax[2,0].set_ylabel('T_R [K]')
+    ax[3,0].set_ylabel('T_K [K]')
+else:
+    fig.suptitle('Identification without State feedback')
+    ax[0,0].set_ylabel('c_B [mol/L]')
+    ax[1,0].set_ylabel('T_R [K]')
 
-# ax[0,0].set_title('c_B')
-# ax[0,1].set_title('T_R')
+fig.tight_layout()
+
+
+
+
+
 
 
 
