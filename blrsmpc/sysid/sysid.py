@@ -2,7 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-import scipy.io as sio
+import scipy
 from scipy.signal import cont2discrete
 from casadi import *
 from casadi.tools import *
@@ -341,8 +341,8 @@ class StateSpaceModel:
 
         W, W0 = self._include_scaling_and_bias()
 
-        self.arx = system.ARX(W, W0=W0, l=self.data_setup.T_ini, y0=y0, u0=u0, dt=self.data_setup.dt)
-        self.LTI = self.arx.convert_to_state_space()
+        arx = system.ARX(W, W0=W0, l=self.data_setup.T_ini, y0=y0, u0=u0, dt=self.data_setup.dt)
+        self.LTI = arx.convert_to_state_space()
 
     def predict(self, *args, **kwargs):
         return self.blr.predict(*args, **kwargs)
@@ -388,7 +388,7 @@ class StateSpaceModel:
 
         return W, W0
 
-    def predict_sequence(self, m, **kwargs):
+    def predict_sequence(self, m, uncert_type: str = 'std', **kwargs):
         """ Harmonized interface with MSM."""
 
         number_input_predictions = (self.data_setup.N+1 )* self.n_u
@@ -411,6 +411,10 @@ class StateSpaceModel:
         C = self.LTI.C
 
         y = x_seq@C.T
-        std = np.sqrt((np.diagonal(P_seq, axis1=1, axis2=2)))
 
-        return y, std
+        if uncert_type == 'cov':
+            cov = scipy.linalg.block_diag(*P_seq)
+            return y, cov
+        elif uncert_type == 'std':
+            std = np.sqrt((np.diagonal(P_seq, axis1=1, axis2=2)))
+            return y, std
