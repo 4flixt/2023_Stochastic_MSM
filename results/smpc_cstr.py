@@ -1,3 +1,6 @@
+# %% [markdown]
+# ## Stochatic MPC (SMPC) for CSTR with identified multistep model and state-space model
+
 # %%
 import numpy as np
 import scipy
@@ -18,18 +21,23 @@ colors = mpl.rcParams['axes.prop_cycle'].by_key()['color']
 
 sys.path.append(os.path.join('..'))
 
+# %% [markdown]
+# ## Import the custom packages used for this project
+
+# %%
+
 from blrsmpc import smpc
 import blrsmpc.sysid.sysid as sid
 from blrsmpc.system import cstr
 
 # %%
 
-state_feedback = True
+state_feedback = False
 
 if state_feedback:
-    load_name = os.path.join('sid_results', 'cstr_prediction_model_state_feedback.pkl')
+    load_name = os.path.join('sid_results', '02_cstr_prediction_model_state_feedback.pkl')
 else:
-    load_name = os.path.join('sid_results', 'cstr_prediction_model_output_feedback.pkl')
+    load_name = os.path.join('sid_results', '02_cstr_prediction_model_output_feedback.pkl')
 
 with open(load_name, "rb") as f:
     res = pickle.load(f)
@@ -59,22 +67,34 @@ def get_controller( model: Union[sid.MultistepModel, sid.StateSpaceModel]) -> Un
         raise ValueError('Unknown model type')
     
 
-    y = controller._y_stage
+    yk = controller._y_stage
+    yset = controller._y_setpoint
+    uk = controller._u_stage
+    up = controller._u_previous
+
+    du = uk - up
+
+    stage_cost = 1e-2*du[0]**2 + 1e-4*du[1]**2
 
     if state_feedback:
-        controller.set_objective(
-            Q    = 0*np.diag([0, 1, 0, 0]),
-            c    = np.array([0, -1, 0, 0]).reshape(-1,1),
-            delR =1*np.diag([1e-4, 1e-4]),
-        )
-        controller.set_chance_cons(expr =  y[2], ub = T_R_ub)
+        # controller.set_objective(
+        #     Q    = 0*np.diag([0, 1, 0, 0]),
+        #     c    = np.array([0, -1, 0, 0]).reshape(-1,1),
+        #     delR =1*np.diag([1e-4, 1e-4]),
+        # )
+        stage_cost+= -yk[1]*uk[0] # maximize c_b * F (product yield)
+        controller.set_chance_cons(expr =  yk[2], ub = T_R_ub)
     else:
-        controller.set_objective(
-            Q    = 0*np.diag([1, 0]),
-            c    = np.array([-1, 0]).reshape(-1,1),
-            delR =1*np.diag([1e-4, 1e-4]),
-        )
-        controller.set_chance_cons(expr =  y[1], ub = T_R_ub)
+        # controller.set_objective(
+        #     Q    = 0*np.diag([1, 0]),
+        #     c    = np.array([-1, 0]).reshape(-1,1),
+        #     delR =1*np.diag([1e-4, 1e-4]),
+        # )
+        stage_cost += -yk[0]*uk[0] # maximize c_a * F (product yield)
+        controller.set_chance_cons(expr =  yk[1], ub = T_R_ub)
+
+    stage_cost_fun = cas.Function('stage_cost', [yk, uk, up, yset], [stage_cost])
+    controller.set_objective_fun(stage_cost_fun)
 
 
     controller.setup()
@@ -98,10 +118,10 @@ def get_prepared_sys() -> sid.system:
     """
     np.random.seed(99)
 
-    C_a_0 = 0.8 # This is the initial concentration inside the tank [mol/l]
-    C_b_0 = 0.8 # This is the controlled variable [mol/l]
-    T_R_0 = 125 #[C]
-    T_K_0 = 125.0 #[C]
+    C_a_0 = 0.5 # This is the initial concentration inside the tank [mol/l]
+    C_b_0 = 0.5 # This is the controlled variable [mol/l]
+    T_R_0 = 120 #[C]
+    T_K_0 = 120.0 #[C]
     x0 = np.array([C_a_0, C_b_0, T_R_0, T_K_0]).reshape(-1,1)
 
     sys_generator = sid.SystemGenerator(
@@ -248,7 +268,7 @@ def plot_closed_loop_frame(ax, res, model, sys, color, i = 0):
 
     for k in range(model.n_y):
 
-        ax[k].plot(sys.time[:i], sys.y[:i,k], '-', label='measured', color=color)
+        ax[k].plot(sys.time[:i+1], sys.y[:i+1,k], '-', label='measured', color=color)
         ax[k].set_prop_cycle(None)
         ax[k].plot(t_pred, Y_pred_i[:,k], '--', label='predicted', color=color)
         ax[k].fill_between(t_pred, 
@@ -257,7 +277,7 @@ def plot_closed_loop_frame(ax, res, model, sys, color, i = 0):
                         alpha=.3, label=r'pred. $\pm c_p\sigma$', color=color)
 
     for j in range(model.n_u):
-        ax[k+j+1].step(sys.time[:i],sys.u[:i,j], where='post', color=color)
+        ax[k+j+1].step(sys.time[:i+1],sys.u[:i+1,j], where='post', color=color)
         ax[k+j+1].set_prop_cycle(None)
         ax[k+j+1].step(t_pred,U_pred_i[:,j], where='post' , linestyle='--', color=color)
 
@@ -293,8 +313,33 @@ fig, ax = plt.subplots(msm.n_y + msm.n_u, 1, sharex=True, figsize=figsize)
 
 anim = FuncAnimation(fig, update, frames=N_steps_closed_loop, interval=500, repeat=True)
 writer = ImageMagickFileWriter(fps=2)
-anim.save('closed_loop_simulation_state_feedback.gif', writer=writer)
-# update(49)
+# anim.save('02_closed_loop_simulation_state_feedback.gif', writer=writer)
+update(49)
 
 plt.show(block=True)
+# %%
+
+# %% [markdown]
+# ## Compute Key Performance Indicators
+# %%
+def get_KPI(sys):
+    if state_feedback:
+        cb = sys.y[:,1]
+        TR = sys.y[:,2]
+        F  = sys.u[:,0]
+    else:
+        cb = sys.y[:,0]
+        TR = sys.y[:,1]
+        F  = sys.u[:,0]
+
+    prod = np.sum(cb*F*cstr.T_STEP_CSTR)
+    cons_viol = np.max(np.maximum(0, TR-T_R_ub))
+
+    print(f'Production: {prod:.2f} mol with max {cons_viol:.2f} K constraint violation')
+
+    return prod, cons_viol
+
+# %%
+get_KPI(ms_sys)
+get_KPI(ss_sys)
 # %%
