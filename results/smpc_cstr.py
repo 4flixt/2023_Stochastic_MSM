@@ -26,33 +26,37 @@ sys.path.append(os.path.join('..'))
 
 # %%
 
+import blrsmpc
 from blrsmpc import smpc
 import blrsmpc.sysid.sysid as sid
 from blrsmpc.system import cstr
 
+# %% [markdown]
+# ## Load the identified system models
+
 # %%
-
-state_feedback = False
-
-if state_feedback:
-    load_name = os.path.join('sid_results', '02_cstr_prediction_model_state_feedback.pkl')
-else:
-    load_name = os.path.join('sid_results', '02_cstr_prediction_model_output_feedback.pkl')
+load_name = os.path.join('sid_results', 'cstr_prediction_models.pkl')
 
 with open(load_name, "rb") as f:
     res = pickle.load(f)
-    ssm = res['ssm']
-    msm = res['msm']
+    ssm_state_fb = res['state_feedback']['ssm']
+    msm_state_fb = res['state_feedback']['msm']
+    ssm_output_fb = res['output_feedback']['ssm']
+    msm_output_fb = res['output_feedback']['msm']
 
+
+# %% [markdown]
+# # Functions to obtain SMPC controller and evaluation tools
+# ## SMPC controller
 
 # %%
 
 
-T_R_ub = 135
+T_R_ub = 135 #TODO: Remove and take from CSTR
 T_R_lb = 120
 
 
-def get_controller( model: Union[sid.MultistepModel, sid.StateSpaceModel]) -> Union[smpc.MultiStepSMPC, smpc.StateSpaceSMPC]:
+def get_controller( model: Union[sid.MultistepModel, sid.StateSpaceModel]) -> blrsmpc.smpc.base.SMPCBase:
 
     smpc_settings = smpc.base.SMPCSettings(
         prob_chance_cons=.999,
@@ -66,6 +70,8 @@ def get_controller( model: Union[sid.MultistepModel, sid.StateSpaceModel]) -> Un
     else:
         raise ValueError('Unknown model type')
     
+    model.n_y
+    
 
     yk = controller._y_stage
     yset = controller._y_setpoint
@@ -76,20 +82,12 @@ def get_controller( model: Union[sid.MultistepModel, sid.StateSpaceModel]) -> Un
 
     stage_cost = 1e-2*du[0]**2 + 1e-4*du[1]**2
 
-    if state_feedback:
-        # controller.set_objective(
-        #     Q    = 0*np.diag([0, 1, 0, 0]),
-        #     c    = np.array([0, -1, 0, 0]).reshape(-1,1),
-        #     delR =1*np.diag([1e-4, 1e-4]),
-        # )
+    if model.n_y == 4:
+        print('Model with 4 outputs (state feedback)')
         stage_cost+= -yk[1]*uk[0] # maximize c_b * F (product yield)
         controller.set_chance_cons(expr =  yk[2], ub = T_R_ub)
-    else:
-        # controller.set_objective(
-        #     Q    = 0*np.diag([1, 0]),
-        #     c    = np.array([-1, 0]).reshape(-1,1),
-        #     delR =1*np.diag([1e-4, 1e-4]),
-        # )
+    if model.n_y == 2:
+        print('Model with 2 outputs (output feedback)')
         stage_cost += -yk[0]*uk[0] # maximize c_a * F (product yield)
         controller.set_chance_cons(expr =  yk[1], ub = T_R_ub)
 
@@ -106,13 +104,12 @@ def get_controller( model: Union[sid.MultistepModel, sid.StateSpaceModel]) -> Un
 
     return controller
 
-
-ss_mpc = get_controller(ssm)
-ms_mpc = get_controller(msm)
+# %% [markdown]
+# ## Function to get a prepared system with initial sequence of measurements
 
 # %%
 
-def get_prepared_sys() -> sid.system:
+def get_prepared_sys(model: Union[sid.MultistepModel, sid.StateSpaceModel]) -> sid.system:
     """
     Initialize the system and generate an initial sequence of measurements
     """
@@ -123,6 +120,9 @@ def get_prepared_sys() -> sid.system:
     T_R_0 = 120 #[C]
     T_K_0 = 120.0 #[C]
     x0 = np.array([C_a_0, C_b_0, T_R_0, T_K_0]).reshape(-1,1)
+
+    # Check if the identified model used data with state feedback or without
+    state_feedback = True if model.n_y == 4 else False
 
     sys_generator = sid.SystemGenerator(
         sys_type=sid.SystemType.CSTR,
@@ -138,66 +138,65 @@ def get_prepared_sys() -> sid.system:
         switch_prob=.3
     )
     # Generate an initial sequence of measurements
-    sys.simulate(random_input, msm.data_setup.T_ini)
+    sys.simulate(random_input, model.data_setup.T_ini)
 
     return sys
 
-ss_sys = get_prepared_sys()
-ms_sys = get_prepared_sys()
-
+# %% [markdown]
+# ## Open-loop prediction and plotting
 
 # %%
-# Solve MPC problem once and investigate the predictions
-y_list = cas.vertsplit(ss_sys.y[-msm.data_setup.T_ini:])
-u_list = cas.vertsplit(ss_sys.u[-msm.data_setup.T_ini:])
 
-ms_mpc.make_step(y_list, u_list)
-ss_mpc.make_step(y_list, u_list)
 
-def open_loop_pred(sys, controller):
+def open_loop_pred(sys: blrsmpc.system.System, controller: blrsmpc.smpc.base.SMPCBase) -> None:
+    """
+    Take system and controller, read the last T_ini measurements from the system and make a prediction.
+    The system and controller state is changed and the function returns nothing.
+    """
+    y_list = cas.vertsplit(sys.y[-controller.sid_model.data_setup.T_ini:])
+    u_list = cas.vertsplit(sys.u[-controller.sid_model.data_setup.T_ini:])
+
+    controller.make_step(y_list, u_list)
+
     seq_input = sid.InputFromSequence(
         controller.res_u_pred
     )
-    sys.simulate(seq_input, msm.data_setup.N)
-
-open_loop_pred(ss_sys, ss_mpc)
-open_loop_pred(ms_sys, ms_mpc)
+    sys.simulate(seq_input, controller.sid_model.data_setup.N)
 
 # %%
+def plot_open_loop(ax, 
+                   controller: blrsmpc.smpc.base.SMPCBase, 
+                   sys: blrsmpc.system.System, 
+                   color: str
+                   ) -> None:
 
+    n_y = controller.sid_model.n_y
+    n_u = controller.sid_model.n_u
 
-if state_feedback:
-    figsize = (8, 8)
-else:
-    figsize = (8, 5)
-
-fig, ax = plt.subplots(msm.n_y + msm.n_u, 1, sharex=True, figsize=figsize)
-
-def plot_open_loop(ax, controller, model, sys, color):
-    t_past = np.arange(-model.data_setup.T_ini,0)*cstr.T_STEP_CSTR
-    t_pred = np.arange(model.data_setup.N)*cstr.T_STEP_CSTR
+    t_past = np.arange(-controller.sid_model.data_setup.T_ini,0)*cstr.T_STEP_CSTR
+    t_pred = np.arange(controller.sid_model.data_setup.N)*cstr.T_STEP_CSTR
 
     t_true = sys.time + t_past[0]
     
     ax[0].set_prop_cycle(None)
-    for k in range(model.n_y):
+    for k in range(n_y):
         meas_lines = ax[k].plot(t_pred, controller.res_y_pred[:,k], '--', label='pred.', color=color)
         ax[k].fill_between(t_pred, 
                         controller.res_y_pred[:,k]+controller.cp*controller.res_y_std[:,k], 
                         controller.res_y_pred[:,k]-controller.cp*controller.res_y_std[:,k], 
-                        alpha=.4, label='pred. std.', color=color)
+                        alpha=.3, label='pred. std.', color=color)
         
-        ax[k].plot(t_true, sys.y[:,k], '-', label='true (a posteriori eval.)', color=color)
+        ax[k].plot(t_true, sys.y[:,k], '-', label='true', color=color)
         
         ax[k].set_prop_cycle(None)
-        ax[k].plot(t_past, controller.res_y_past[:,k], '-x', color=color)
+        ax[k].plot(t_past, controller.res_y_past[:,k], '-x', label='init.', color=color)
 
-    for i in range(msm.n_u):
+    for i in range(n_u):
         ax[k+i+1].step(t_pred[:-1],controller.res_u_pred[:-1,i], where='post', color=color)
         ax[k+i+1].set_prop_cycle(None)
         ax[k+i+1].step(t_past,controller.res_u_past[:,i], '-x', where='post', color=color)    
 
-    if state_feedback:
+    if controller.sid_model.n_y == 4:
         ax[2].axhline(T_R_ub, color='r', linestyle='--')
         ax[0].set_ylabel('c_A [mol/L]')
         ax[1].set_ylabel('c_B [mol/L]')
@@ -212,12 +211,65 @@ def plot_open_loop(ax, controller, model, sys, color):
     ax[-2].set_ylabel('F [L/h]')
     # ax[0].legend(ncols=3, loc='upper left', bbox_to_anchor=(0,1.4))
 
+def comparison_plot_open_loop(
+    sys_and_controller_list: List[Tuple[blrsmpc.system.System, blrsmpc.smpc.base.SMPCBase]],
+    case_names: List[str] = None,   
+    ) -> Tuple[plt.Figure, plt.Axes]:
 
-plot_open_loop(ax, ss_mpc, ssm, ss_sys, color=colors[0])
-plot_open_loop(ax, ms_mpc, msm, ms_sys, color=colors[1])
+    n_y = sys_and_controller_list[0][1].sid_model.n_y
+    n_u = sys_and_controller_list[0][1].sid_model.n_u
 
-fig.align_ylabels()
-fig.suptitle('Stochastic MPC open-loop prediction')
+    if n_y == 4:
+        figsize = (8, 8)
+    else:
+        figsize = (8, 5)
+
+    fig, ax = plt.subplots(n_y + n_u, 1, sharex=True, figsize=figsize)
+
+    for i, (sys, controller) in enumerate(sys_and_controller_list):
+        if i>0:
+            ax[0].plot([], [], '-', label=' ', color='w')
+        ax[0].plot([], [], '-', label=case_names[i], color='w')
+        plot_open_loop(ax, controller, sys, color=colors[i%len(colors)])
+
+    ax[0].legend(loc='upper right', bbox_to_anchor=(1.25,1))
+
+    fig.align_ylabels()
+    fig.suptitle('Stochastic MPC open-loop prediction')
+    # fig.tight_layout()
+
+    return fig, ax
+
+
+# %%
+
+ss_mpc_state_fb = get_controller(ssm_state_fb)
+ms_mpc_state_fb = get_controller(msm_state_fb)
+
+ss_sys = get_prepared_sys(ssm_state_fb)
+ms_sys = get_prepared_sys(msm_state_fb)
+
+open_loop_pred(ss_sys, ss_mpc_state_fb)
+open_loop_pred(ms_sys, ms_mpc_state_fb)
+
+comparison_plot_open_loop(
+    [(ms_sys, ms_mpc_state_fb), (ss_sys, ss_mpc_state_fb)], case_names=['MSM', 'SSM']
+)
+
+# %%
+
+ss_mpc_output_fb = get_controller(ssm_output_fb)
+ms_mpc_output_fb = get_controller(msm_output_fb)
+
+ss_sys = get_prepared_sys(ssm_output_fb)
+ms_sys = get_prepared_sys(msm_output_fb)
+
+open_loop_pred(ss_sys, ss_mpc_output_fb)
+open_loop_pred(ms_sys, ms_mpc_output_fb)
+
+comparison_plot_open_loop(
+    [(ms_sys, ms_mpc_output_fb), (ss_sys, ss_mpc_output_fb)], case_names=['MSM', 'SSM']
+)
 
 
 # %% [markdown]
@@ -226,10 +278,7 @@ fig.suptitle('Stochastic MPC open-loop prediction')
 # - Initialze variables to store the predictions at each time-step
 
 # %%
-
-N_steps_closed_loop = 50
-
-def run_closed_loop(controller, sys, N_steps=N_steps_closed_loop):
+def run_closed_loop(controller, sys, N_steps):
     U_pred = []
     Y_pred = []
     Y_std_pred = []
@@ -249,74 +298,130 @@ def run_closed_loop(controller, sys, N_steps=N_steps_closed_loop):
     }
 
     return closed_loop_res
-
-
-ss_sys = get_prepared_sys()
-ms_sys = get_prepared_sys()
-
-closed_loop_res_ss = run_closed_loop(ss_mpc, ss_sys)
-closed_loop_res_ms = run_closed_loop(ms_mpc, ms_sys)
 # %%
 
+N_steps_closed_loop = 50
+ss_sys_output_fb = get_prepared_sys(ssm_output_fb)
+ms_sys_output_fb = get_prepared_sys(msm_output_fb)
 
-def plot_closed_loop_frame(ax, res, model, sys, color, i = 0):
-    t_pred = sys.time[i] + np.arange(model.data_setup.N+1)*cstr.T_STEP_CSTR
+closed_loop_res_ss = run_closed_loop(ss_mpc_output_fb, ss_sys_output_fb, N_steps_closed_loop)
+closed_loop_res_ms = run_closed_loop(ms_mpc_output_fb, ms_sys_output_fb, N_steps_closed_loop)
+# %%
+def plot_closed_loop(
+        ax: List[plt.Axes], 
+        res: Dict[str, np.ndarray], 
+        controller: blrsmpc.smpc.base.SMPCBase, 
+        sys: sid.system, 
+        color:str, 
+        i: int = 0
+        ):
+    
+    t_pred = sys.time[i] + np.arange(controller.sid_model.data_setup.N+1)*cstr.T_STEP_CSTR
 
     Y_pred_i = np.concatenate((sys.y[i].reshape(1,-1), res['Y_pred'][i]))
     U_pred_i = np.concatenate((sys.u[i].reshape(1,-1), res['U_pred'][i]))
-    Y_std_pred_i = np.concatenate((np.zeros((1,model.n_y)), res['Y_std_pred'][i]))
+    Y_std_pred_i = np.concatenate((np.zeros((1,sys.n_y)), res['Y_std_pred'][i]))
 
-    for k in range(model.n_y):
-
+    for k in range(sys.n_y):
         ax[k].plot(sys.time[:i+1], sys.y[:i+1,k], '-', label='measured', color=color)
         ax[k].set_prop_cycle(None)
         ax[k].plot(t_pred, Y_pred_i[:,k], '--', label='predicted', color=color)
         ax[k].fill_between(t_pred, 
-                        Y_pred_i[:,k]+ms_mpc.cp*Y_std_pred_i[:,k], 
-                        Y_pred_i[:,k]-ms_mpc.cp*Y_std_pred_i[:,k], 
+                        Y_pred_i[:,k]+controller.cp*Y_std_pred_i[:,k], 
+                        Y_pred_i[:,k]-controller.cp*Y_std_pred_i[:,k], 
                         alpha=.3, label=r'pred. $\pm c_p\sigma$', color=color)
 
-    for j in range(model.n_u):
+    for j in range(sys.n_u):
         ax[k+j+1].step(sys.time[:i+1],sys.u[:i+1,j], where='post', color=color)
         ax[k+j+1].set_prop_cycle(None)
         ax[k+j+1].step(t_pred,U_pred_i[:,j], where='post' , linestyle='--', color=color)
 
-def update(i):
-    for ax_i in ax:
-        ax_i.clear()
 
-    ax[0].plot([], [], '-', label='SS-SMPC', color='w')
-    plot_closed_loop_frame(ax, closed_loop_res_ss, ssm, ss_sys, colors[0], i)
-    ax[0].plot([], [], '-', label='MS-SMPC', color='w')
-    plot_closed_loop_frame(ax, closed_loop_res_ms, msm, ms_sys, colors[1], i)
+class ComparisonPlotClosedLoop:
+    def __init__(
+            self,
+            sys_list : List[blrsmpc.system.System],
+            controller_list : List[blrsmpc.smpc.base.SMPCBase],
+            closed_loop_res: List[Dict[str, np.ndarray]],
+            case_names: List[str] = None,
+            ):
+        self.sys_list = sys_list
+        self.n_compare = len(sys_list)
 
-    if state_feedback:
-        ax[2].axhline(T_R_ub, color='r', linestyle='--')
-        ax[0].set_ylabel('c_A [mol/L]')
-        ax[1].set_ylabel('c_B [mol/L]')
-        ax[2].set_ylabel('T_R [K]')
-        ax[3].set_ylabel('T_K [K]')
-    else:
-        ax[1].axhline(T_R_ub, color='r', linestyle='--')
-        ax[0].set_ylabel('c_B [mol/L]')
-        ax[1].set_ylabel('T_R [K]')
+        if case_names is None:
+            case_names = [None,]*len(sys_list)
 
-    ax[-1].set_ylabel('Q_dot')
-    ax[-2].set_ylabel('F [L/h]')
-    ax[-1].set_xlabel('time [h]')
-    ax[0].legend(ncols=2, loc='upper left', bbox_to_anchor=(0,2.2), framealpha=1)
+        for l in [sys_list, controller_list, closed_loop_res, case_names]:
+            if not isinstance(l, list):
+                raise TypeError('All arguments must be lists')
+            if len(l) != self.n_compare:
+                raise ValueError('All lists must have the same length')
 
-    fig.align_ylabels()
-    fig.tight_layout()
+        self.controller_list = controller_list
+        self.closed_loop_res = closed_loop_res
+        self.case_names = case_names        
 
-fig, ax = plt.subplots(msm.n_y + msm.n_u, 1, sharex=True, figsize=figsize)
+        for i, sys_i in enumerate(sys_list):
+            if i==0:
+                self.n_u = sys_i.n_u
+                self.n_y = sys_i.n_y
+            
+            assert self.n_u == sys_i.n_u, 'All systems must have the same number of inputs'
+            assert self.n_y == sys_i.n_y, 'All systems must have the same number of outputs'
 
-anim = FuncAnimation(fig, update, frames=N_steps_closed_loop, interval=500, repeat=True)
-writer = ImageMagickFileWriter(fps=2)
-# anim.save('02_closed_loop_simulation_state_feedback.gif', writer=writer)
-update(49)
+        if self.n_y == 4:
+            figsize = (8, 8)
+        else:
+            figsize = (8, 5)
 
-plt.show(block=True)
+        self.fig, self.ax = plt.subplots(self.n_u+self.n_y, 1, figsize=figsize)
+
+    def draw_frame(self, i):
+    
+        ax = self.ax
+        
+        for ax_i in ax:
+            ax_i.clear()
+
+        for k in range(self.n_compare):
+            ax[0].plot([], [], '-', label=self.case_names[k], color='w')
+            plot_closed_loop(ax, self.closed_loop_res[k], self.controller_list[k], self.sys_list[k], colors[k], i)
+
+        if self.n_y == 4:
+            ax[2].axhline(T_R_ub, color='r', linestyle='--')
+            ax[0].set_ylabel('c_A [mol/L]')
+            ax[1].set_ylabel('c_B [mol/L]')
+            ax[2].set_ylabel('T_R [K]')
+            ax[3].set_ylabel('T_K [K]')
+        else:
+            ax[1].axhline(T_R_ub, color='r', linestyle='--')
+            ax[0].set_ylabel('c_B [mol/L]')
+            ax[1].set_ylabel('T_R [K]')
+
+        ax[-1].set_ylabel('Q_dot')
+        ax[-2].set_ylabel('F [L/h]')
+        ax[-1].set_xlabel('time [h]')
+        ax[0].legend(ncols=2, loc='upper left', bbox_to_anchor=(0,2.2), framealpha=1)
+
+        self.fig.align_ylabels()
+        self.fig.tight_layout()
+
+# %%
+
+comp_closed_loop_plot = ComparisonPlotClosedLoop(
+    sys_list = [ss_sys_output_fb, ms_sys_output_fb],
+    controller_list = [ss_mpc_output_fb, ms_mpc_output_fb],
+    closed_loop_res = [closed_loop_res_ss, closed_loop_res_ms],
+)
+
+comp_closed_loop_plot.draw_frame(49)
+
+# anim = FuncAnimation(fig, update_closed_loop_frame, frames=N_steps_closed_loop, interval=500, repeat=True)
+# writer = ImageMagickFileWriter(fps=2)
+# # anim.save('02_closed_loop_simulation_state_feedback.gif', writer=writer)
+# update_closed_loop_frame(49)
+
+# plt.show(block=True)
 # %%
 
 # %% [markdown]
