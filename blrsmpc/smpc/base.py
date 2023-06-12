@@ -139,7 +139,6 @@ class SMPCBase(ABC):
                     Q: np.ndarray, 
                     R: Optional[np.ndarray] = None,
                     delR: Optional[np.ndarray] = None, 
-                    P: Optional[np.ndarray] = None,
                     c: Optional[np.ndarray] = None,
                     ):
     
@@ -148,12 +147,10 @@ class SMPCBase(ABC):
 
         ::
 
-            dx = (x - x_s)
+            dy = (y - y_s)
             du = (u - u_prev)
+            J(y,u) = dy.T@Q@dy + c.T@y + u.T@R@u + du.T@delR@du 
 
-            J(x,u) = dx.T@Q@dx + c.T@x + u.T@R@u + du.T@delR@du 
-
-            m(x) = dx.T@P@dx + c.T@x
         
         """
 
@@ -167,10 +164,6 @@ class SMPCBase(ABC):
             delR = np.zeros((self.sid_model.n_u, self.sid_model.n_u))
         elif delR.shape != (self.sid_model.n_u, self.sid_model.n_u):
             raise ValueError("delR must be a square matrix with shape (n_u, n_u)")
-        if P is None:
-            P = Q
-        elif P.shape != (self.sid_model.n_y, self.sid_model.n_y):
-            raise ValueError("P must be a square matrix with shape (n_y, n_y)")
         if c is None:
             c = np.zeros((self.sid_model.n_y, 1))
         elif c.shape != (self.sid_model.n_y, 1):
@@ -179,37 +172,31 @@ class SMPCBase(ABC):
         self.Q = Q
         self.R = R
         self.delR = delR
-        self.P = P
         self.c = c
 
         dy = self._y_stage - self._y_setpoint
         du = self._u_stage - self._u_previous
 
         stage_term = dy.T@Q@dy + c.T@self._y_stage + du.T@R@du + du.T@delR@du
-        terminal_term = dy.T@P@dy + c.T@self._y_stage
 
         stage_cost = cas.Function('stage_cost', 
                                     [self._y_stage, self._u_stage, self._u_previous, self._y_setpoint], 
                                     [stage_term]
                                   )
-        terminal_cost = cas.Function('terminal_cost',
-                                    [self._y_stage, self._y_setpoint],
-                                    [terminal_term]
-                                    )
         
-        self.set_objective_fun(stage_cost, terminal_cost)
+        self.set_objective_fun(stage_cost)
 
 
-    def set_objective_fun(self, stage_cost: cas.Function, terminal_cost: cas.Function):
+    def set_objective_fun(self, stage_cost: cas.Function):
         """
         Define custom objective function. The CasADi functions must have the following signature:
 
-        - stage_cost: ``cas.Function([y_stage, u_stage, u_previous, y_setpoint], [stage_term])``
-        - terminal_cost: ``cas.Function([y_stage, y_setpoint], [terminal_term])`` 
+        ::
+            
+            cas.Function([y_stage, u_stage, u_previous, y_setpoint], [stage_term])
 
         """
         self.stage_cost = stage_cost
-        self.terminal_cost = terminal_cost
         self.flags.SET_OBJECTIVE = True
 
     
