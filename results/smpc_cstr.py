@@ -1,5 +1,9 @@
 # %% [markdown]
-# ## Stochatic MPC (SMPC) for CSTR with identified multistep model and state-space model
+"""
+# Stochatic MPC (SMPC) for CSTR with identified multistep model and state-space model
+
+Import the necessary packages
+"""
 
 # %%
 import numpy as np
@@ -14,6 +18,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, ImageMagickFileWriter
 import importlib
 import casadi as cas
+import pandas as pd
 
 # Get colors
 import matplotlib as mpl
@@ -22,7 +27,9 @@ colors = mpl.rcParams['axes.prop_cycle'].by_key()['color']
 sys.path.append(os.path.join('..'))
 
 # %% [markdown]
-# ## Import the custom packages used for this project
+"""
+## Import the custom packages used for this project
+"""
 
 # %%
 
@@ -32,8 +39,9 @@ import blrsmpc.sysid.sysid as sid
 from blrsmpc.system import cstr
 
 # %% [markdown]
-# ## Load the identified system models
-
+"""
+## Load the identified system models
+"""
 # %%
 load_name = os.path.join('sid_results', 'cstr_prediction_models.pkl')
 
@@ -46,8 +54,10 @@ with open(load_name, "rb") as f:
 
 
 # %% [markdown]
-# # Functions to obtain SMPC controller and evaluation tools
-# ## SMPC controller
+"""
+# Functions to obtain SMPC controller and evaluation tools
+## SMPC controller
+"""
 
 # %%
 
@@ -56,7 +66,7 @@ T_R_ub = 135 #TODO: Remove and take from CSTR
 T_R_lb = 120
 
 
-def get_controller( model: Union[sid.MultistepModel, sid.StateSpaceModel]) -> blrsmpc.smpc.base.SMPCBase:
+def get_controller( model: Union[sid.MultistepModel, sid.StateSpaceModel], chance_cons: bool = True) -> blrsmpc.smpc.base.SMPCBase:
 
     smpc_settings = smpc.base.SMPCSettings(
         prob_chance_cons=.999,
@@ -85,15 +95,17 @@ def get_controller( model: Union[sid.MultistepModel, sid.StateSpaceModel]) -> bl
     if model.n_y == 4:
         print('Model with 4 outputs (state feedback)')
         stage_cost+= -yk[1]*uk[0] # maximize c_b * F (product yield)
-        controller.set_chance_cons(expr =  yk[2], ub = T_R_ub)
+        T_R_ind = 2
     if model.n_y == 2:
         print('Model with 2 outputs (output feedback)')
         stage_cost += -yk[0]*uk[0] # maximize c_a * F (product yield)
-        controller.set_chance_cons(expr =  yk[1], ub = T_R_ub)
+        T_R_ind = 1
 
     stage_cost_fun = cas.Function('stage_cost', [yk, uk, up, yset], [stage_cost])
     controller.set_objective_fun(stage_cost_fun)
 
+    if chance_cons:
+        controller.set_chance_cons(expr =  yk[T_R_ind], ub = T_R_ub)
 
     controller.setup()
 
@@ -102,24 +114,28 @@ def get_controller( model: Union[sid.MultistepModel, sid.StateSpaceModel]) -> bl
     controller.lb_opt_x['u_pred',:] = cstr.CSTR_BOUNDS['u_lb']
     controller.ub_opt_x['u_pred',:] = cstr.CSTR_BOUNDS['u_ub']
 
+    if not chance_cons:
+        controller.ub_opt_x['y_pred', :, T_R_ind] = T_R_ub
+
     return controller
 
 # %% [markdown]
-# ## Function to get a prepared system with initial sequence of measurements
+"""
+## Function to get a prepared system with initial sequence of measurements
+"""
 
 # %%
 
-def get_prepared_sys(model: Union[sid.MultistepModel, sid.StateSpaceModel]) -> sid.system:
+def get_prepared_sys(model: Union[sid.MultistepModel, sid.StateSpaceModel], x0: Optional[np.ndarray] = None) -> sid.system:
     """
     Initialize the system and generate an initial sequence of measurements
     """
-    np.random.seed(99)
-
-    C_a_0 = 0.5 # This is the initial concentration inside the tank [mol/l]
-    C_b_0 = 0.5 # This is the controlled variable [mol/l]
-    T_R_0 = 120 #[C]
-    T_K_0 = 120.0 #[C]
-    x0 = np.array([C_a_0, C_b_0, T_R_0, T_K_0]).reshape(-1,1)
+    if x0 is None:
+        C_a_0 = 0.5 # This is the initial concentration inside the tank [mol/l]
+        C_b_0 = 0.5 # This is the controlled variable [mol/l]
+        T_R_0 = 120 #[C]
+        T_K_0 = 120.0 #[C]
+        x0 = np.array([C_a_0, C_b_0, T_R_0, T_K_0]).reshape(-1,1)
 
     # Check if the identified model used data with state feedback or without
     state_feedback = True if model.n_y == 4 else False
@@ -143,10 +159,11 @@ def get_prepared_sys(model: Union[sid.MultistepModel, sid.StateSpaceModel]) -> s
     return sys
 
 # %% [markdown]
-# ## Open-loop prediction and plotting
+"""
+## Functions for open-loop prediction and plotting
+"""
 
 # %%
-
 
 def open_loop_pred(sys: blrsmpc.system.System, controller: blrsmpc.smpc.base.SMPCBase) -> None:
     """
@@ -241,41 +258,11 @@ def comparison_plot_open_loop(
     return fig, ax
 
 
-# %%
-
-ss_mpc_state_fb = get_controller(ssm_state_fb)
-ms_mpc_state_fb = get_controller(msm_state_fb)
-
-ss_sys = get_prepared_sys(ssm_state_fb)
-ms_sys = get_prepared_sys(msm_state_fb)
-
-open_loop_pred(ss_sys, ss_mpc_state_fb)
-open_loop_pred(ms_sys, ms_mpc_state_fb)
-
-comparison_plot_open_loop(
-    [(ms_sys, ms_mpc_state_fb), (ss_sys, ss_mpc_state_fb)], case_names=['MSM', 'SSM']
-)
-
-# %%
-
-ss_mpc_output_fb = get_controller(ssm_output_fb)
-ms_mpc_output_fb = get_controller(msm_output_fb)
-
-ss_sys = get_prepared_sys(ssm_output_fb)
-ms_sys = get_prepared_sys(msm_output_fb)
-
-open_loop_pred(ss_sys, ss_mpc_output_fb)
-open_loop_pred(ms_sys, ms_mpc_output_fb)
-
-comparison_plot_open_loop(
-    [(ms_sys, ms_mpc_output_fb), (ss_sys, ss_mpc_output_fb)], case_names=['MSM', 'SSM']
-)
-
-
 # %% [markdown]
-## Closed-loop simulation
-# - Reset the system and get initial sequence
-# - Initialze variables to store the predictions at each time-step
+
+"""
+## Functions for closed-loop simulation
+"""
 
 # %%
 def run_closed_loop(controller, sys, N_steps):
@@ -298,14 +285,11 @@ def run_closed_loop(controller, sys, N_steps):
     }
 
     return closed_loop_res
-# %%
 
-N_steps_closed_loop = 50
-ss_sys_output_fb = get_prepared_sys(ssm_output_fb)
-ms_sys_output_fb = get_prepared_sys(msm_output_fb)
-
-closed_loop_res_ss = run_closed_loop(ss_mpc_output_fb, ss_sys_output_fb, N_steps_closed_loop)
-closed_loop_res_ms = run_closed_loop(ms_mpc_output_fb, ms_sys_output_fb, N_steps_closed_loop)
+# %% [markdown]
+"""
+## Functions for plotting closed-loop simulation
+"""
 # %%
 def plot_closed_loop(
         ax: List[plt.Axes], 
@@ -336,6 +320,7 @@ def plot_closed_loop(
         ax[k+j+1].set_prop_cycle(None)
         ax[k+j+1].step(t_pred,U_pred_i[:,j], where='post' , linestyle='--', color=color)
 
+# %%
 
 class ComparisonPlotClosedLoop:
     def __init__(
@@ -406,29 +391,13 @@ class ComparisonPlotClosedLoop:
         self.fig.align_ylabels()
         self.fig.tight_layout()
 
-# %%
-
-comp_closed_loop_plot = ComparisonPlotClosedLoop(
-    sys_list = [ss_sys_output_fb, ms_sys_output_fb],
-    controller_list = [ss_mpc_output_fb, ms_mpc_output_fb],
-    closed_loop_res = [closed_loop_res_ss, closed_loop_res_ms],
-)
-
-comp_closed_loop_plot.draw_frame(49)
-
-# anim = FuncAnimation(fig, update_closed_loop_frame, frames=N_steps_closed_loop, interval=500, repeat=True)
-# writer = ImageMagickFileWriter(fps=2)
-# # anim.save('02_closed_loop_simulation_state_feedback.gif', writer=writer)
-# update_closed_loop_frame(49)
-
-# plt.show(block=True)
-# %%
-
 # %% [markdown]
-# ## Compute Key Performance Indicators
+"""
+## Functions for key performance indicators (KPIs)
+"""
 # %%
-def get_KPI(sys):
-    if state_feedback:
+def get_KPI(sys, prefix:str = 'Result'):
+    if sys.n_y == 4:
         cb = sys.y[:,1]
         TR = sys.y[:,2]
         F  = sys.u[:,0]
@@ -440,11 +409,177 @@ def get_KPI(sys):
     prod = np.sum(cb*F*cstr.T_STEP_CSTR)
     cons_viol = np.max(np.maximum(0, TR-T_R_ub))
 
-    print(f'Production: {prod:.2f} mol with max {cons_viol:.2f} K constraint violation')
+    print(f'{prefix}: {prod:.2f} mol with max {cons_viol:.2f} K constraint violation')
 
     return prod, cons_viol
 
+# %% [markdown]
+"""
+# Evaluation
+## Open-loop prediction
+### State feedback
+"""
+
 # %%
-get_KPI(ms_sys)
-get_KPI(ss_sys)
+
+ss_mpc_state_fb = get_controller(ssm_state_fb, chance_cons=True)
+ms_mpc_state_fb = get_controller(msm_state_fb, chance_cons=True)
+
+ss_sys = get_prepared_sys(ssm_state_fb)
+ms_sys = get_prepared_sys(msm_state_fb)
+
+open_loop_pred(ss_sys, ss_mpc_state_fb)
+open_loop_pred(ms_sys, ms_mpc_state_fb)
+
+comparison_plot_open_loop(
+    [(ms_sys, ms_mpc_state_fb), (ss_sys, ss_mpc_state_fb)], case_names=['MSM', 'SSM']
+)
+
+# %% [markdown]
+"""
+### Output feedback
+"""
+# %%
+
+ss_mpc_output_fb = get_controller(ssm_output_fb, chance_cons=False)
+ms_mpc_output_fb = get_controller(msm_output_fb, chance_cons=False)
+
+ss_sys = get_prepared_sys(ssm_output_fb)
+ms_sys = get_prepared_sys(msm_output_fb)
+
+open_loop_pred(ss_sys, ss_mpc_output_fb)
+open_loop_pred(ms_sys, ms_mpc_output_fb)
+
+comparison_plot_open_loop(
+    [(ms_sys, ms_mpc_output_fb), (ss_sys, ss_mpc_output_fb)], case_names=['MSM', 'SSM']
+)
+# %% [markdown]
+"""
+## Closed-loop simulation
+### State feedback
+"""
+
+# %%
+
+N_steps_closed_loop = 50
+ss_sys_state_fb = get_prepared_sys(ssm_state_fb)
+ms_sys_state_fb = get_prepared_sys(msm_state_fb)
+
+cl_ss_state_fb = run_closed_loop(ss_mpc_state_fb, ss_sys_state_fb, N_steps_closed_loop)
+cl_ms_state_fb = run_closed_loop(ms_mpc_state_fb, ms_sys_state_fb, N_steps_closed_loop)
+
+
+# %%
+
+comp_cl_plot_state_fb = ComparisonPlotClosedLoop(
+    sys_list = [ms_sys_state_fb, ss_sys_state_fb],
+    controller_list = [ms_mpc_state_fb, ss_mpc_state_fb],
+    closed_loop_res = [cl_ms_state_fb, cl_ss_state_fb],
+    case_names=['MSM', 'SSM']
+)
+
+comp_cl_plot_state_fb.draw_frame(49)
+
+# anim = FuncAnimation(fig, update_closed_loop_frame, frames=N_steps_closed_loop, interval=500, repeat=True)
+# writer = ImageMagickFileWriter(fps=2)
+# # anim.save('02_closed_loop_simulation_state_feedback.gif', writer=writer)
+# update_closed_loop_frame(49)
+
+# plt.show(block=True)
+
+# %%
+get_KPI(ms_sys_state_fb, 'MSM (state feedback)')
+get_KPI(ss_sys_state_fb, 'SSM (state feedback)')
+
+# %% [markdown]
+"""
+## Closed-loop simulation
+### Output feedback
+"""
+
+# %%
+
+N_steps_closed_loop = 50
+ss_sys_output_fb = get_prepared_sys(ssm_output_fb)
+ms_sys_output_fb = get_prepared_sys(msm_output_fb)
+
+cl_res_ss_output_fb = run_closed_loop(ss_mpc_output_fb, ss_sys_output_fb, N_steps_closed_loop)
+cl_res_ms_output_fb = run_closed_loop(ms_mpc_output_fb, ms_sys_output_fb, N_steps_closed_loop)
+
+
+# %%
+
+comp_cl_plot_output_fb = ComparisonPlotClosedLoop(
+    sys_list = [ms_sys_output_fb, ss_sys_output_fb],
+    controller_list = [ms_mpc_output_fb, ss_mpc_output_fb],
+    closed_loop_res = [cl_res_ms_output_fb, cl_res_ss_output_fb],
+)
+
+comp_cl_plot_output_fb.draw_frame(49)
+
+# %%
+# %%
+get_KPI(ms_sys_output_fb, 'MSM (state feedback)')
+get_KPI(ss_sys_output_fb, 'SSM (state feedback)')
+
+# %% [markdown]
+"""
+## Meta analysis closed-loop
+"""
+
+def run_meta_analysis(x0_list: List[np.ndarray]):
+    res = {
+        'x0': [],
+        'state_feedback': {
+            'msm': [],
+            'ssm': [],
+        },
+        'output_feedback': {
+            'msm': [],
+            'ssm': [],
+        },
+    }
+
+    for x0_k in x0_list:
+        res['x0'].append(x0_k)
+
+        ss_sys_output_fb = get_prepared_sys(ssm_output_fb, x0=x0_k)
+        ms_sys_output_fb = get_prepared_sys(msm_output_fb, x0=x0_k)
+        ss_sys_state_fb = get_prepared_sys(ssm_state_fb, x0=x0_k)
+        ms_sys_state_fb = get_prepared_sys(msm_state_fb, x0=x0_k)
+
+        cl_res_ss_output_fb = run_closed_loop(ss_mpc_output_fb, ss_sys_output_fb, N_steps_closed_loop)
+        cl_res_ms_output_fb = run_closed_loop(ms_mpc_output_fb, ms_sys_output_fb, N_steps_closed_loop)
+
+        cl_ss_state_fb = run_closed_loop(ss_mpc_state_fb, ss_sys_state_fb, N_steps_closed_loop)
+        cl_ms_state_fb = run_closed_loop(ms_mpc_state_fb, ms_sys_state_fb, N_steps_closed_loop) 
+
+        res['state_feedback']['msm'].append(ms_sys_state_fb)
+        res['state_feedback']['ssm'].append(ss_sys_state_fb)
+        res['output_feedback']['msm'].append(ms_sys_output_fb)
+        res['output_feedback']['ssm'].append(ss_sys_output_fb)
+
+    return res
+
+# %%
+n_cases = 5
+x0_test = np.random.uniform(cstr.CSTR_SAMPLE_BOUNDS['x_lb'], cstr.CSTR_SAMPLE_BOUNDS['x_ub'], size=(4, n_cases))
+x0_test = np.split(x0_test, 5, axis=1)[0].shape
+
+
+# %%
+df_output_fb_ssm = pd.DataFrame(map(get_KPI, res['output_feedback']['ssm']), columns=['product [mol]','max. cons. viol [K]'])
+df_output_fb_msm = pd.DataFrame(map(get_KPI, res['output_feedback']['msm']), columns=['product [mol]','max. cons. viol [K]'])
+df_output_fb = pd.concat([df_output_fb_ssm, df_output_fb_msm], keys = ['SSM', 'MSM'], axis=1)
+
+
+df_state_fb_msm = pd.DataFrame(map(get_KPI, res['state_feedback']['msm']), columns=['product [mol]','max. cons. viol [K]'])
+df_state_fb_ssm = pd.DataFrame(map(get_KPI, res['state_feedback']['ssm']), columns=['product [mol]','max. cons. viol [K]'])
+df_state_fb = pd.concat([df_state_fb_ssm, df_state_fb_msm], keys = ['SSM', 'MSM'], axis=1)
+
+df = pd.concat([df_output_fb, df_state_fb], keys = ['Output feedback', 'State feedback'], axis=1)
+df
+
+# %%
+x0_test.shape
 # %%
