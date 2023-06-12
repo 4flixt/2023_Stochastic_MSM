@@ -1,23 +1,15 @@
 
 import numpy as np
 import scipy
-import scipy.io as sio
-from scipy.signal import cont2discrete
-import sys
-import os
 import casadi as cas
 import casadi.tools as ct
 from typing import Union, List, Dict, Tuple, Optional, Callable
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from enum import Enum, auto
 import pdb
 
 from blrsmpc import system
 from blrsmpc.sysid import sysid as sid
-# sys.path.append(os.path.join('..'))
-# import system
-# import sysid as sid
 
 
 def chi_sq_pdf(k, x):
@@ -113,7 +105,12 @@ class ConstraintHandler:
         return self._cons_lb_cat
 
 
-class SMPCBase:
+class SMPCBase(ABC):
+    """
+    Base class for SMPC with identified system model.
+    Identification is done with either a state-space model or a multi-step model.
+    
+    """
     def __init__(self, sid_model: Union[sid.MultistepModel, sid.StateSpaceModel], settings: SMPCSettings):
         self.flags = SMPCFlags()
         self.sid_model = sid_model
@@ -121,9 +118,12 @@ class SMPCBase:
         self._gen_dummy_variables()
 
     def _gen_dummy_variables(self):
-        self._y_stage = cas.SX.sym('y', self.sid_model.n_y)
-        self._u_stage = cas.SX.sym('u', self.sid_model.n_u)
+        self._y_stage    = cas.SX.sym('y', self.sid_model.n_y)
+        self._y_setpoint = cas.SX.sym('y_sp', self.sid_model.n_y)
+        self._u_stage    = cas.SX.sym('u', self.sid_model.n_u)
+        self._u_previous = cas.SX.sym('u_prev', self.sid_model.n_u)
         self._stage_cons = ConstraintHandler()
+
     
     def set_chance_cons(self, expr: cas.SX, ub: Union[np.ndarray, int, float]):
         expr = expr 
@@ -144,7 +144,7 @@ class SMPCBase:
                     ):
     
         """
-        Cost function:
+        Define quadratic objective function for the MPC problem. The objective function is defined as:
 
         ::
 
@@ -182,6 +182,34 @@ class SMPCBase:
         self.P = P
         self.c = c
 
+        dy = self._y_stage - self._y_setpoint
+        du = self._u_stage - self._u_previous
+
+        stage_term = dy.T@Q@dy + c.T@self._y_stage + du.T@R@du + du.T@delR@du
+        terminal_term = dy.T@P@dy + c.T@self._y_stage
+
+        stage_cost = cas.Function('stage_cost', 
+                                    [self._y_stage, self._u_stage, self._u_previous, self._y_setpoint], 
+                                    [stage_term]
+                                  )
+        terminal_cost = cas.Function('terminal_cost',
+                                    [self._y_stage, self._y_setpoint],
+                                    [terminal_term]
+                                    )
+        
+        self.set_objective_fun(stage_cost, terminal_cost)
+
+
+    def set_objective_fun(self, stage_cost: cas.Function, terminal_cost: cas.Function):
+        """
+        Define custom objective function. The CasADi functions must have the following signature:
+
+        - stage_cost: ``cas.Function([y_stage, u_stage, u_previous, y_setpoint], [stage_term])``
+        - terminal_cost: ``cas.Function([y_stage, y_setpoint], [terminal_term])`` 
+
+        """
+        self.stage_cost = stage_cost
+        self.terminal_cost = terminal_cost
         self.flags.SET_OBJECTIVE = True
 
     
@@ -214,12 +242,110 @@ class SMPCBase:
         u_opt = self.opt_x_num['u_pred', 0]
 
         return u_opt
+
+    def __call__(self, t: float, x: np.ndarray):
+        if not self.flags.READ_FROM_SYSTEM:
+            raise ValueError('System not set')
+
+        if self.system.y.shape[0] < self.sid_model.data_setup.T_ini:
+            u_opt = np.zeros((self.sid_model.n_u, 1))
+        else:
+            y_list = cas.vertsplit(self.system.y[-self.sid_model.data_setup.T_ini:])
+            u_list = cas.vertsplit(self.system.u[-self.sid_model.data_setup.T_ini:])
+
+            u_opt = self.make_step(y_list, u_list)
+        
+        return u_opt
     
     def read_from(self, system: system.System):
         """ 
         """
         self.system = system
         self.flags.READ_FROM_SYSTEM = True
+
+    @abstractmethod
+    def _get_y_and_Sigma_y_pred(self, opt_x: ct.struct_symSX, opt_p: ct.struct_symSX) -> Tuple[cas.SX, cas.SX]:
+        """
+        Implement this method to return the predicted output and covariance matrix.
+        The implementation differs for the state-space and the multi-step model.
+        """
+        pass
+
+    def setup(self):
+        """ 
+        """
+        self.stage_cons_fun = cas.Function('stage_cons_fun', [self._y_stage], [self._stage_cons.cons])
+
+
+        self.cons = ConstraintHandler()
+        self.chance_cons = ConstraintHandler()
+
+        opt_x = ct.struct_symSX([
+            ct.entry("y_pred", shape=self.sid_model.n_y, repeat=self.sid_model.data_setup.N),
+            ct.entry("u_pred", shape=self.sid_model.n_u, repeat=self.sid_model.data_setup.N),
+        ])
+        opt_p = ct.struct_symSX([
+            ct.entry("y_past", shape=self.sid_model.n_y, repeat=self.sid_model.data_setup.T_ini),
+            ct.entry("u_past", shape=self.sid_model.n_u, repeat=self.sid_model.data_setup.T_ini),
+            ct.entry("y_set", shape=self.sid_model.n_y, repeat=self.sid_model.data_setup.N),
+        ])
+
+        y_pred = cas.vertcat(*opt_x['y_pred'])
+        y_pred_calc, Sigma_y_pred = self._get_y_and_Sigma_y_pred(opt_x, opt_p)
+
+        
+        """ Constraints """
+        sys_cons = cas.vertcat(*opt_x['y_pred']) - y_pred_calc
+        self.cons.add_cons(sys_cons, 0, 0)
+
+        for k in range(1, self.sid_model.data_setup.N):
+            cons_k = self.stage_cons_fun(opt_x['y_pred', k])
+            self.chance_cons.add_cons(cons_k, cons_ub=self._stage_cons.cons_ub, cons_lb=None)
+
+        H = cas.jacobian(self.chance_cons.cons, y_pred)
+
+        cp = np.sqrt(2)*scipy.special.erfinv(2*self.settings.prob_chance_cons -1)
+        self.cp = cp
+
+        for i, H_i in enumerate(cas.vertsplit(H)):
+            chance_cons_determ = H_i@y_pred + cp*cas.sqrt(H_i@Sigma_y_pred@H_i.T)
+            self.cons.add_cons(chance_cons_determ, cons_ub=self.chance_cons.cons_ub[i], cons_lb=None)
+
+        """ Objective """
+        obj = 0
+        for k in range(self.sid_model.data_setup.N):
+            if k == 0:
+                u_prev = opt_p['u_past', -1]
+            else:
+                u_prev = opt_x['u_pred', k-1]
+
+            y_k = opt_x['y_pred', k]
+            u_k = opt_x['u_pred', k]
+            y_set_k = opt_p['y_set', k]
+
+            obj += self.stage_cost(y_k, u_k, u_prev, y_set_k)
+
+        """ Bounds """
+        self.lb_opt_x = opt_x(-np.inf)
+        self.ub_opt_x = opt_x(np.inf)
+
+        nlp = {'x': opt_x, 'p': opt_p, 'f': obj, 'g': self.cons.cons}
+        self.solver = cas.nlpsol('solver', 'ipopt', nlp, self.settings.nlp_opts)
+
+        opt_aux_expr = ct.struct_SX([
+            ct.entry('Sigma_y_pred', expr=Sigma_y_pred),
+            ct.entry('H', expr=H),
+        ])
+
+        self.opt_aux_fun = cas.Function('opt_aux_fun', [opt_x, opt_p], [opt_aux_expr])
+
+        self.opt_aux_num = opt_aux_expr(0)
+        self.opt_p_num = opt_p(0)
+        self.opt_x_num = opt_x(0)
+
+        self.opt_x = opt_x
+
+        self.flags.SETUP_NLP = True
 
 
     @property
