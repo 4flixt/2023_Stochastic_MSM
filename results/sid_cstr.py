@@ -38,9 +38,14 @@ importlib.reload(sid)
 def get_train_test_data(state_feedback: bool = False):
     np.random.seed(99)
 
+    if state_feedback:
+        T_ini = 1
+    else:
+        T_ini = 3
+
     settings = {
         'N': 20,
-        'T_ini': 3,
+        'T_ini': T_ini,
         'train_samples': 800,
         'test_samples': 50, 
         'state_feedback': state_feedback,
@@ -291,4 +296,6 @@ savename = 'sid_cstr_lpd.tex'
 
 with open(os.path.join(savepath, savename), 'w') as f:
     f.write(tex_str)
+# %%
+df
 # %%
