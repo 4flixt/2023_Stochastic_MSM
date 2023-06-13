@@ -72,6 +72,7 @@ def get_controller( model: Union[sid.MultistepModel, sid.StateSpaceModel], chanc
         prob_chance_cons=.999,
         with_cov=True,
     )
+    smpc_settings.surpress_ipopt_output()
 
     if isinstance(model, sid.StateSpaceModel):
         controller = smpc.StateSpaceSMPC(model, smpc_settings)
@@ -130,6 +131,8 @@ def get_prepared_sys(model: Union[sid.MultistepModel, sid.StateSpaceModel], x0: 
     """
     Initialize the system and generate an initial sequence of measurements
     """
+    np.random.seed(99)
+
     if x0 is None:
         C_a_0 = 0.5 # This is the initial concentration inside the tank [mol/l]
         C_b_0 = 0.5 # This is the controlled variable [mol/l]
@@ -409,7 +412,7 @@ def get_KPI(sys, prefix:str = 'Result'):
     prod = np.sum(cb*F*cstr.T_STEP_CSTR)
     cons_viol = np.max(np.maximum(0, TR-T_R_ub))
 
-    print(f'{prefix}: {prod:.2f} mol with max {cons_viol:.2f} K constraint violation')
+    # print(f'{prefix}: {prod:.2f} mol with max {cons_viol:.2f} K constraint violation')
 
     return prod, cons_viol
 
@@ -441,8 +444,8 @@ comparison_plot_open_loop(
 """
 # %%
 
-ss_mpc_output_fb = get_controller(ssm_output_fb, chance_cons=False)
-ms_mpc_output_fb = get_controller(msm_output_fb, chance_cons=False)
+ss_mpc_output_fb = get_controller(ssm_output_fb, chance_cons=True)
+ms_mpc_output_fb = get_controller(msm_output_fb, chance_cons=True)
 
 ss_sys = get_prepared_sys(ssm_output_fb)
 ms_sys = get_prepared_sys(msm_output_fb)
@@ -527,59 +530,37 @@ get_KPI(ss_sys_output_fb, 'SSM (state feedback)')
 ## Meta analysis closed-loop
 """
 
-def run_meta_analysis(x0_list: List[np.ndarray]):
-    res = {
-        'x0': [],
-        'state_feedback': {
-            'msm': [],
-            'ssm': [],
-        },
-        'output_feedback': {
-            'msm': [],
-            'ssm': [],
-        },
-    }
+def run_meta_analysis(x0_list: List[np.ndarray], controller: Union[smpc.MultiStepSMPC, smpc.StateSpaceSMPC], N_steps: int):
+    res = []
 
     for x0_k in x0_list:
-        res['x0'].append(x0_k)
+        sys_k = get_prepared_sys(controller.sid_model, x0=x0_k)
+        _ = run_closed_loop(controller, sys_k, N_steps)
 
-        ss_sys_output_fb = get_prepared_sys(ssm_output_fb, x0=x0_k)
-        ms_sys_output_fb = get_prepared_sys(msm_output_fb, x0=x0_k)
-        ss_sys_state_fb = get_prepared_sys(ssm_state_fb, x0=x0_k)
-        ms_sys_state_fb = get_prepared_sys(msm_state_fb, x0=x0_k)
-
-        cl_res_ss_output_fb = run_closed_loop(ss_mpc_output_fb, ss_sys_output_fb, N_steps_closed_loop)
-        cl_res_ms_output_fb = run_closed_loop(ms_mpc_output_fb, ms_sys_output_fb, N_steps_closed_loop)
-
-        cl_ss_state_fb = run_closed_loop(ss_mpc_state_fb, ss_sys_state_fb, N_steps_closed_loop)
-        cl_ms_state_fb = run_closed_loop(ms_mpc_state_fb, ms_sys_state_fb, N_steps_closed_loop) 
-
-        res['state_feedback']['msm'].append(ms_sys_state_fb)
-        res['state_feedback']['ssm'].append(ss_sys_state_fb)
-        res['output_feedback']['msm'].append(ms_sys_output_fb)
-        res['output_feedback']['ssm'].append(ss_sys_output_fb)
+        res.append(sys_k)
 
     return res
 
 # %%
 n_cases = 5
 x0_test = np.random.uniform(cstr.CSTR_SAMPLE_BOUNDS['x_lb'], cstr.CSTR_SAMPLE_BOUNDS['x_ub'], size=(4, n_cases))
-x0_test = np.split(x0_test, 5, axis=1)[0].shape
+x0_test = np.split(x0_test, n_cases, axis=1)
+
+meta_msm_output_fb = run_meta_analysis(x0_test, ms_mpc_output_fb, N_steps_closed_loop)
+meta_ssm_output_fb = run_meta_analysis(x0_test, ss_mpc_output_fb, N_steps_closed_loop)
+meta_msm_state_fb = run_meta_analysis(x0_test, ms_mpc_state_fb, N_steps_closed_loop)
+meta_ssm_state_fb = run_meta_analysis(x0_test, ss_mpc_state_fb, N_steps_closed_loop)
 
 
 # %%
-df_output_fb_ssm = pd.DataFrame(map(get_KPI, res['output_feedback']['ssm']), columns=['product [mol]','max. cons. viol [K]'])
-df_output_fb_msm = pd.DataFrame(map(get_KPI, res['output_feedback']['msm']), columns=['product [mol]','max. cons. viol [K]'])
+df_output_fb_ssm = pd.DataFrame(map(get_KPI, meta_ssm_output_fb), columns=['product [mol]','max. cons. viol [K]'])
+df_output_fb_msm = pd.DataFrame(map(get_KPI, meta_msm_output_fb), columns=['product [mol]','max. cons. viol [K]'])
 df_output_fb = pd.concat([df_output_fb_ssm, df_output_fb_msm], keys = ['SSM', 'MSM'], axis=1)
 
 
-df_state_fb_msm = pd.DataFrame(map(get_KPI, res['state_feedback']['msm']), columns=['product [mol]','max. cons. viol [K]'])
-df_state_fb_ssm = pd.DataFrame(map(get_KPI, res['state_feedback']['ssm']), columns=['product [mol]','max. cons. viol [K]'])
+df_state_fb_msm = pd.DataFrame(map(get_KPI, meta_msm_state_fb), columns=['product [mol]','max. cons. viol [K]'])
+df_state_fb_ssm = pd.DataFrame(map(get_KPI, meta_ssm_state_fb), columns=['product [mol]','max. cons. viol [K]'])
 df_state_fb = pd.concat([df_state_fb_ssm, df_state_fb_msm], keys = ['SSM', 'MSM'], axis=1)
 
 df = pd.concat([df_output_fb, df_state_fb], keys = ['Output feedback', 'State feedback'], axis=1)
 df
-
-# %%
-x0_test.shape
-# %%
