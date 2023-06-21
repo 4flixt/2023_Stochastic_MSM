@@ -310,7 +310,7 @@ class BayesianLinearRegression:
         if with_noise_variance:
             Sigma_y += np.kron(self.Sigma_e, np.eye(m_t))   # Add noise variance to Sigma_y
 
-        if not return_scaled:
+        if self.scale_y and not return_scaled:
             S_y =np.diag(self.scaler_y.scale_) 
             Sigma_y =  S_y@Sigma_y@S_y.T 
 
