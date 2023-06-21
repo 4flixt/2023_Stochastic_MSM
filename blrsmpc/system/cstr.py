@@ -34,7 +34,7 @@ CSTR_BOUNDS = {
     'x_lb': np.array([0.1, 0.1, 50., 50.]).reshape(-1,1),
     'x_ub': np.array([2.0, 2.0, 135., 140.]).reshape(-1,1),
     'u_lb': np.array([5.0, -8.5]).reshape(-1,1),
-    'u_ub': np.array([40.0, 0.]).reshape(-1,1),
+    'u_ub': np.array([60.0, 0.]).reshape(-1,1),
 }
 
 CSTR_SAMPLE_BOUNDS = {
