@@ -47,7 +47,7 @@ def get_train_test_data(state_feedback: bool = False):
         'N': 20,
         'T_ini': T_ini,
         'train_samples': 800,
-        'test_samples': 50, 
+        'test_samples': 100, 
         'state_feedback': state_feedback,
     }
 
