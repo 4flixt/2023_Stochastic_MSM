@@ -12,8 +12,9 @@ from enum import Enum, auto
 import pdb
 
 from blrsmpc import system
-from blrsmpc.sysid import bayli
+from blrsmpc.sysid import bayli, mle
 from blrsmpc import helper
+
 # %%
 class SystemType(Enum):
     TRIPLE_MASS_SPRING = auto()
@@ -269,9 +270,10 @@ class MultistepModel:
         ):
         # Bias cannot be estimated.
         # kwargs.update(add_bias=False)
-        self.blr = bayli.BayesianLinearRegression(
-            **kwargs
-        )
+        # self.blr = bayli.BayesianLinearRegression(
+        #     **kwargs
+        # )
+        self.blr = mle.MLE(**kwargs)
         # if self.blr.add_bias:
         #     raise ValueError('Multi-step model does not support BLR with scaling or bias.')
 
@@ -320,10 +322,12 @@ class StateSpaceModel:
             ):
         # Bias cannot be estimated.
         # kwargs.update(add_bias=False)
-        self.blr = bayli.BayesianLinearRegression(
-            **kwargs
-            )
-        
+        # self.blr = bayli.BayesianLinearRegression(
+        #     **kwargs
+        #     )
+        self.blr = mle.MLE(**kwargs)        
+
+
         # if self.blr.add_bias:
         #     raise ValueError('State space model does not support BLR with bias.')
 
@@ -373,12 +377,14 @@ class StateSpaceModel:
         else:
             W0 = np.zeros((self.blr.n_y, 1))
 
+        n_x = W.shape[1]
+
         if self.blr.scale_x:
             S_x_inv = np.diag(1 / self.blr.scaler_x.scale_)
             m_x = self.blr.scaler_x.mean_.reshape(-1,1)
         else:
-            S_x_inv = np.eye(self.blr.n_x)
-            m_x = np.zeros((self.blr.n_x, 1))
+            S_x_inv = np.eye(n_x)
+            m_x = np.zeros((n_x, 1))
 
         if self.blr.scale_y:
             S_y = np.diag(self.blr.scaler_y.scale_)
