@@ -21,13 +21,16 @@ colors = mpl.rcParams['axes.prop_cycle'].by_key()['color']
 
 sys.path.append(os.path.join('..'))
 
+
 # %% [markdown]
 # ## Import the custom packages used for this project
 
 # %%
+import blrsmpc
 import blrsmpc.sysid.sysid as sid
 from blrsmpc.system import cstr
 
+blrsmpc.plotconfig.config_mpl(os.path.join('..', 'blrsmpc', 'plotconfig', 'notation.tex'))
 importlib.reload(sid)
 
 # %% [markdown]
@@ -46,7 +49,7 @@ def get_train_test_data(state_feedback: bool = False):
     settings = {
         'N': 20,
         'T_ini': T_ini,
-        'train_samples': 800,
+        'train_samples': 200,
         'test_samples': 100, 
         'state_feedback': state_feedback,
     }
@@ -156,7 +159,7 @@ def plot_results(msm: sid.MultistepModel, ssm: sid.StateSpaceModel, data_test: s
     return fig, ax
 
 # %%
-def get_lpd(data: sid.DataGenerator, model: Union[sid.MultistepModel, sid.StateSpaceModel]) -> Tuple[float, float]:
+def get_lpd(data: sid.DataGenerator, model: Union[sid.MultistepModel, sid.StateSpaceModel], only_variance=False) -> Tuple[float, float, np.ndarray]:
     n_samples = data.setup.n_samples
 
     lpd_calc = np.zeros(n_samples)
@@ -167,23 +170,19 @@ def get_lpd(data: sid.DataGenerator, model: Union[sid.MultistepModel, sid.StateS
             y_pred_vec, y_pred_cov = model.predict_sequence(data.M[:,[test_case]], uncert_type="cov", with_noise_variance=True)
 
         y_pred = y_pred_vec.reshape(-1, data.n_y)
-        y_pred_std = np.sqrt(np.diag(y_pred_cov)).reshape(-1, data.n_y)
 
         y_true_vec  = data.Y_N[:,test_case]
         y_true = y_true_vec.reshape(-1, data.n_y)
+
+        if only_variance:
+            y_pred_cov = np.diag(np.diag(y_pred_cov))
 
         lpd_calc[test_case] = lpd(y_true.reshape(-1,1), y_pred.reshape(-1,1), y_pred_cov)
 
     lpd_mean = float(np.mean(lpd_calc))
     lpd_std = float(np.std(lpd_calc))
 
-    return lpd_mean, lpd_std
-
-# lpd_mean_ssm = get_lpd(data_test, ssm)
-# lpd_mean_msm = get_lpd(data_test, msm)
-
-# print(f'LPD MSM: {lpd_mean_msm:.2f}')
-# print(f'LPD SSM: {lpd_mean_ssm:.2f}')
+    return lpd_mean, lpd_std, lpd_calc
 
 
 # %% [markdown]
@@ -210,8 +209,8 @@ fig, ax = plot_results(msm_state_fb, ssm_state_fb, data_test_state_fb, state_fee
 # ### Get LPD as Key Performance Indicator
 
 # %%
-lpd_ssm_state_fb = get_lpd(data_test_state_fb, ssm_state_fb)
-lpd_msm_state_fb = get_lpd(data_test_state_fb, msm_state_fb)
+lpd_ssm_state_fb = get_lpd(data_test_state_fb, ssm_state_fb, only_variance=True)
+lpd_msm_state_fb = get_lpd(data_test_state_fb, msm_state_fb, only_variance=True)
 print(f'LPD MSM: {lpd_msm_state_fb[0]:.2f}+-{lpd_msm_state_fb[1]:.2f}')
 print(f'LPD SSM: {lpd_ssm_state_fb[0]:.2f}+-{lpd_ssm_state_fb[1]:.2f}')
 
@@ -238,10 +237,51 @@ fig, ax = plot_results(msm_output_fb, ssm_output_fb, data_test_output_fb, state_
 # ### Get LPD as Key Performance Indicator
 
 # %%
-lpd_ssm_output_fb = get_lpd(data_test_output_fb, ssm_output_fb)
-lpd_msm_output_fb = get_lpd(data_test_output_fb, msm_output_fb)
+lpd_ssm_output_fb = get_lpd(data_test_output_fb, ssm_output_fb, only_variance=True)
+lpd_msm_output_fb = get_lpd(data_test_output_fb, msm_output_fb, only_variance=True)
 print(f'LPD MSM: {lpd_msm_output_fb[0]:.2f}+-{lpd_msm_output_fb[1]:.2f}')
 print(f'LPD SSM: {lpd_ssm_output_fb[0]:.2f}+-{lpd_ssm_output_fb[1]:.2f}')
+
+# %% [markdown]
+# ## Comparison of LPD state-feedback and output-feedback in a boxplot
+# We pre-filter the 5% worst cases to get a better view on the boxplot
+
+# %%
+lpd_msm_state_fb_95 = np.sort(lpd_msm_state_fb[2])[5:]
+lpd_ssm_state_fb_95 = np.sort(lpd_ssm_state_fb[2])[5:]
+lpd_msm_output_fb_95 = np.sort(lpd_msm_output_fb[2])[5:]
+lpd_ssm_output_fb_95 = np.sort(lpd_ssm_output_fb[2])[5:]
+
+col_width = blrsmpc.plotconfig.columnwidth
+fig, ax = plt.subplots(2,1, figsize=(col_width, .6*col_width), sharex=True, dpi=200)
+lpd_state_fb = np.stack([lpd_msm_state_fb_95, lpd_ssm_state_fb_95], axis=1)
+lpd_output_fb = np.stack([lpd_msm_output_fb_95, lpd_ssm_output_fb_95], axis=1)
+ax[0].set_title('State feedback')
+ax[0].boxplot(lpd_state_fb, vert=False, labels=['MSM', 'SSM'], widths=.8)
+ax[1].boxplot(lpd_output_fb, vert=False, labels=['MSM', 'SSM'], widths=.8)
+
+# Put y-axis on the right side
+ax[1].yaxis.tick_right()
+ax[1].yaxis.set_label_position("right")
+ax[0].yaxis.tick_right()
+ax[0].yaxis.set_label_position("right")
+
+ax[1].set_title('Output feedback')
+ax[1].set_xlabel('log-predictive density')
+
+# Deactivate frame around the figure and activate grid only for x-axis
+for a in ax:
+    a.spines['top'].set_visible(False)
+    a.spines['right'].set_visible(False)
+    a.spines['left'].set_visible(False)
+    a.spines['bottom'].set_visible(False)
+    a.grid(axis='x', color='grey', linestyle='--', linewidth=1, alpha=.5)
+
+fig.tight_layout()
+
+savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
+savename = 'cstr_boxplot_lpd_state_vs_output_feeback'
+fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
 
 # %% [markdown]
 # # Save the models and table with KPI
@@ -280,8 +320,8 @@ class RV:
     
 rv = RV(1,2)
 
-ssm_kpi = [RV(*lpd_ssm_state_fb), RV(*lpd_ssm_output_fb)]
-msm_kpi = [RV(*lpd_msm_state_fb), RV(*lpd_msm_output_fb)]
+ssm_kpi = [RV(*lpd_ssm_state_fb[:2]), RV(*lpd_ssm_output_fb[:2])]
+msm_kpi = [RV(*lpd_msm_state_fb[:2]), RV(*lpd_msm_output_fb[:2])]
 
 df = pd.DataFrame(
     {'SSM': ssm_kpi, 'MSM': msm_kpi},
