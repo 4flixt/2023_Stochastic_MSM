@@ -44,7 +44,7 @@ def get_ABC(t_samp: Optional[float]= 3600.00) -> Tuple[np.ndarray, np.ndarray, n
         np.zeros((4,1))
     ], axis=1)
 
-    ts = 20*3600 #s
+    ts = 5*3600 #s
     a0 = np.array([0,0,0,0, 1/ts]).reshape(1,-1)
 
     A = np.concatenate([np.linalg.inv(C)@(H-D), -a0], axis=0)
