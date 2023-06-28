@@ -38,6 +38,8 @@ from blrsmpc import smpc
 import blrsmpc.sysid.sysid as sid
 from blrsmpc.system import cstr
 
+blrsmpc.plotconfig.config_mpl(os.path.join('..', 'blrsmpc', 'plotconfig', 'notation.tex'))
+
 # %% [markdown]
 """
 ## Load the identified system models
@@ -218,14 +220,14 @@ def plot_open_loop(ax,
 
     if controller.sid_model.n_y == 4:
         ax[2].axhline(T_R_ub, color='r', linestyle='--')
-        ax[0].set_ylabel('c_A [mol/L]')
-        ax[1].set_ylabel('c_B [mol/L]')
-        ax[2].set_ylabel('T_R [K]')
-        ax[3].set_ylabel('T_K [K]')
+        ax[0].set_ylabel('$c_A$ [mol/l]')
+        ax[1].set_ylabel('$c_B$ [mol/l]')
+        ax[2].set_ylabel('$T_R$ [°C]')
+        ax[3].set_ylabel('$T_K$ [°C]')
     else:
         ax[1].axhline(T_R_ub, color='r', linestyle='--')
-        ax[0].set_ylabel('c_B [mol/L]')
-        ax[1].set_ylabel('T_R [K]')
+        ax[0].set_ylabel('$c_B$ [mol/l]')
+        ax[1].set_ylabel('$T_R$ [°C]')
 
     ax[-1].set_ylabel('Q_dot')
     ax[-2].set_ylabel('F [L/h]')
@@ -239,12 +241,13 @@ def comparison_plot_open_loop(
     n_y = sys_and_controller_list[0][1].sid_model.n_y
     n_u = sys_and_controller_list[0][1].sid_model.n_u
 
+    pagewidth = blrsmpc.plotconfig.textwidth
     if n_y == 4:
-        figsize = (8, 8)
+        figsize = (pagewidth, pagewidth)
     else:
-        figsize = (8, 5)
+        figsize = (pagewidth, 0.6*pagewidth)
 
-    fig, ax = plt.subplots(n_y + n_u, 1, sharex=True, figsize=figsize)
+    fig, ax = plt.subplots(n_y + n_u, 1, sharex=True, figsize=figsize, dpi=200)
 
     for i, (sys, controller) in enumerate(sys_and_controller_list):
         if i>0:
@@ -357,12 +360,13 @@ class ComparisonPlotClosedLoop:
             assert self.n_u == sys_i.n_u, 'All systems must have the same number of inputs'
             assert self.n_y == sys_i.n_y, 'All systems must have the same number of outputs'
 
+        width = blrsmpc.plotconfig.columnwidth
         if self.n_y == 4:
-            figsize = (8, 8)
+            figsize = (width, 1.6*width)
         else:
-            figsize = (8, 5)
+            figsize = (width, 1.2*width)
 
-        self.fig, self.ax = plt.subplots(self.n_u+self.n_y, 1, figsize=figsize)
+        self.fig, self.ax = plt.subplots(self.n_u+self.n_y, 1, figsize=figsize, dpi = 200, sharex=True)
 
     def draw_frame(self, i):
     
@@ -377,17 +381,17 @@ class ComparisonPlotClosedLoop:
 
         if self.n_y == 4:
             ax[2].axhline(T_R_ub, color='r', linestyle='--')
-            ax[0].set_ylabel('c_A [mol/L]')
-            ax[1].set_ylabel('c_B [mol/L]')
-            ax[2].set_ylabel('T_R [K]')
-            ax[3].set_ylabel('T_K [K]')
+            ax[0].set_ylabel('$c_A$ [mol/l]')
+            ax[1].set_ylabel('$c_B$ [mol/l]')
+            ax[2].set_ylabel('$T_R$ [°C]')
+            ax[3].set_ylabel('$T_K$ [°C]')
         else:
             ax[1].axhline(T_R_ub, color='r', linestyle='--')
-            ax[0].set_ylabel('c_B [mol/L]')
-            ax[1].set_ylabel('T_R [K]')
+            ax[0].set_ylabel('$c_B$ [mol/l]')
+            ax[1].set_ylabel('$T_R$ [°C]')
 
-        ax[-1].set_ylabel('Q_dot')
-        ax[-2].set_ylabel('F [L/h]')
+        ax[-1].set_ylabel('$\dot Q$ [kW]')
+        ax[-2].set_ylabel('$F$ [l/h]')
         ax[-1].set_xlabel('time [h]')
         ax[0].legend(ncols=2, loc='upper left', bbox_to_anchor=(0,2.2), framealpha=1)
 
@@ -502,7 +506,7 @@ get_KPI(ss_sys_state_fb, 'SSM (state feedback)')
 
 # %%
 
-N_steps_closed_loop = 50
+N_steps_closed_loop = 30
 ss_sys_output_fb = get_prepared_sys(ssm_output_fb)
 ms_sys_output_fb = get_prepared_sys(msm_output_fb)
 
@@ -516,9 +520,19 @@ comp_cl_plot_output_fb = ComparisonPlotClosedLoop(
     sys_list = [ms_sys_output_fb, ss_sys_output_fb],
     controller_list = [ms_mpc_output_fb, ss_mpc_output_fb],
     closed_loop_res = [cl_res_ms_output_fb, cl_res_ss_output_fb],
+    case_names=['MSM', 'SSM']
 )
 
-comp_cl_plot_output_fb.draw_frame(49)
+comp_cl_plot_output_fb.draw_frame(29)
+
+# %% [markdown]
+# ## Save figure
+
+# %%
+
+savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
+savename = 'cstr_closed_loop_output_feedback_msm_vs_ssm'
+comp_cl_plot_output_fb.fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
 
 # %%
 # %%
@@ -528,7 +542,12 @@ get_KPI(ss_sys_output_fb, 'SSM (state feedback)')
 # %% [markdown]
 """
 ## Meta analysis closed-loop
+
+For the meta analysis, we compare multiple controller variants for different initial conditions 
+and investigate the closed-loop cost and the constraint violation. 
 """
+
+# %%
 
 def run_meta_analysis(x0_list: List[np.ndarray], controller: Union[smpc.MultiStepSMPC, smpc.StateSpaceSMPC], N_steps: int):
     res = []
@@ -541,26 +560,134 @@ def run_meta_analysis(x0_list: List[np.ndarray], controller: Union[smpc.MultiSte
 
     return res
 
-# %%
-n_cases = 5
-x0_test = np.random.uniform(cstr.CSTR_SAMPLE_BOUNDS['x_lb'], cstr.CSTR_SAMPLE_BOUNDS['x_ub'], size=(4, n_cases))
-x0_test = np.split(x0_test, n_cases, axis=1)
-
-meta_msm_output_fb = run_meta_analysis(x0_test, ms_mpc_output_fb, N_steps_closed_loop)
-meta_ssm_output_fb = run_meta_analysis(x0_test, ss_mpc_output_fb, N_steps_closed_loop)
-meta_msm_state_fb = run_meta_analysis(x0_test, ms_mpc_state_fb, N_steps_closed_loop)
-meta_ssm_state_fb = run_meta_analysis(x0_test, ss_mpc_state_fb, N_steps_closed_loop)
+# %% [markdown]
+"""
+Define the number of test cases, sample random initial conditions
+and setup the different variants of the tested controllers in a nested dict.
+"""
 
 
 # %%
-df_output_fb_ssm = pd.DataFrame(map(get_KPI, meta_ssm_output_fb), columns=['product [mol]','max. cons. viol [K]'])
-df_output_fb_msm = pd.DataFrame(map(get_KPI, meta_msm_output_fb), columns=['product [mol]','max. cons. viol [K]'])
-df_output_fb = pd.concat([df_output_fb_ssm, df_output_fb_msm], keys = ['SSM', 'MSM'], axis=1)
+n_cases = 10
+N_steps_closed_loop = 30
 
+np.random.seed(99)
 
-df_state_fb_msm = pd.DataFrame(map(get_KPI, meta_msm_state_fb), columns=['product [mol]','max. cons. viol [K]'])
-df_state_fb_ssm = pd.DataFrame(map(get_KPI, meta_ssm_state_fb), columns=['product [mol]','max. cons. viol [K]'])
-df_state_fb = pd.concat([df_state_fb_ssm, df_state_fb_msm], keys = ['SSM', 'MSM'], axis=1)
+x0_test_arr = np.random.uniform(cstr.CSTR_SAMPLE_BOUNDS['x_lb'], cstr.CSTR_SAMPLE_BOUNDS['x_ub'], size=(4, n_cases))
+x0_test = np.split(x0_test_arr, n_cases, axis=1)
+pd.DataFrame(x0_test_arr.T, columns=['cA', 'cB', 'TR', 'TK'])
 
-df = pd.concat([df_output_fb, df_state_fb], keys = ['Output feedback', 'State feedback'], axis=1)
-df
+# %%
+test_dict_cont_chance_cons = {
+    'Output-feedback': {
+        'MSM': get_controller(msm_output_fb, chance_cons=True),
+        'SSM': get_controller(ssm_output_fb, chance_cons=True)
+    },
+    'State-feedback': {
+        'MSM': get_controller(msm_state_fb, chance_cons=True),
+        'SSM': get_controller(ssm_state_fb, chance_cons=True),
+    }
+}
+
+test_dict_cont_determ_cons = {
+    'Output-feedback': {
+        'MSM': get_controller(msm_output_fb, chance_cons=False),
+        'SSM': get_controller(ssm_output_fb, chance_cons=False)
+    },
+    'State-feedback': {
+        'MSM': get_controller(msm_state_fb, chance_cons=False),
+        'SSM': get_controller(ssm_state_fb, chance_cons=False),
+    }
+}
+
+# %% [markdown]
+"""
+We recursively loop through the dictionary of controllers and call the function `run_meta_analysis` for each controller
+and given the list of initial conditions. The result is a nested dictionary with the same structure as the input dictionary.
+
+We then loop again through this result dictionary and create a pandas DataFrame for each controller variant which shows the KPIs 
+defined in the function `get_KPI`. 
+
+For both loops, we use the function `recursive_meta_eval` which takes a dictionary and a function as input and applies the function
+to each value in the dictionary.
+"""
+
+# %%
+
+def recursive_meta_eval(test_dict: dict, func: Callable):
+    result_dict = {}
+    for key, val in test_dict.items():
+        if isinstance(val, dict):
+            result_dict[key] = recursive_meta_eval(val, func)
+        else:
+            result_dict[key] = func(val)
+
+    return result_dict
+
+# %%
+res_chance_cons = recursive_meta_eval(test_dict_cont_chance_cons, lambda x: run_meta_analysis(x0_test, x, N_steps_closed_loop))
+res_determ_cons = recursive_meta_eval(test_dict_cont_determ_cons, lambda x: run_meta_analysis(x0_test, x, N_steps_closed_loop))
+# %%
+df_dict_meta_chance_cons = recursive_meta_eval(res_chance_cons, lambda x: pd.DataFrame(map(get_KPI, x), columns=['product [mol]','max. cons. viol [K]']))
+df_dict_meta_determ_cons = recursive_meta_eval(res_determ_cons, lambda x: pd.DataFrame(map(get_KPI, x), columns=['product [mol]','max. cons. viol [K]']))
+
+# %% [markdown]
+"""
+Finally, we concatenate the DataFrames from the nested dict (again recursively) to obtain
+a single DataFrame with multi-indexed columns. This DataFrame can be readily exported to latex. 
+"""
+
+# %%
+
+def pd_recursive_concat(pd_dict: dict):
+    result = {}
+    for key, val in pd_dict.items():
+        try:
+            result[key] = pd.concat(val, axis=1)
+        except:
+            result[key] = pd_recursive_concat(val)
+
+    result = pd.concat(result, axis=1)
+
+    return result
+
+df_meta_chance_cons = pd_recursive_concat(df_dict_meta_chance_cons)
+df_meta_determ_cons = pd_recursive_concat(df_dict_meta_determ_cons)
+# %%
+df_meta_chance_cons
+
+# %%
+df_meta_determ_cons
+# %%
+
+class RV:
+    def __init__(self, arr):
+        self.mean = np.mean(arr)
+        self.std = np.std(arr)
+
+    def __str__(self):
+        return f'{self.mean:.2f} +- {self.std:.2f}'
+# %%
+
+df_meta_chance_cons_agglom = pd.DataFrame(df_meta_chance_cons.apply(RV, result_type='expand'))
+
+# %%
+tex_str = df_meta_chance_cons_agglom.to_latex()
+tex_str = tex_str.replace('+-', '$\pm$')
+tex_str = tex_str.replace('[K]', '[\\unit{\\degreeCelsius}]')
+tex_str_list = tex_str.split('\n')
+tex_str_list.pop(1)
+tex_str_list.pop(1)
+tex_str_list.pop(-3)
+
+tex_str =  '\n'.join(tex_str_list)
+
+    
+savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'tables')
+savename = 'cstr_closed_loop_comparison.tex'
+
+with open(os.path.join(savepath, savename), 'w') as f:
+    f.write(tex_str)
+# %%
+tex_str.split('\n')
+# %%
