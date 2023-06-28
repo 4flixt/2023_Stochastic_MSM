@@ -266,18 +266,15 @@ class DataGenerator:
 class MultistepModel:
     def __init__(
             self,
+            type = 'mle',
             **kwargs
         ):
-        # Bias cannot be estimated.
-        # kwargs.update(add_bias=False)
-        # self.blr = bayli.BayesianLinearRegression(
-        #     **kwargs
-        # )
-        self.blr = mle.MLE(**kwargs)
-        # if self.blr.add_bias:
-        #     raise ValueError('Multi-step model does not support BLR with scaling or bias.')
-
-        # if self.blr.scale_x or self.blr.scale_y or self.blr.add_bias:
+        if type == 'mle':
+            self.blr = mle.MLE(**kwargs)
+        elif type == 'blr':
+            self.blr = bayli.BayesianLinearRegression(
+                **kwargs
+            )
 
     def get_sparsity(self, data: DataGenerator):
         mat_sparsity_sigma_e = np.kron(np.eye(data.setup.N), np.tril(np.ones((data.n_y, data.n_y)))) == 1
@@ -318,18 +315,15 @@ class MultistepModel:
 class StateSpaceModel:
     def __init__(
             self,
+            type = 'mle',
             **kwargs
-            ):
-        # Bias cannot be estimated.
-        # kwargs.update(add_bias=False)
-        # self.blr = bayli.BayesianLinearRegression(
-        #     **kwargs
-        #     )
-        self.blr = mle.MLE(**kwargs)        
-
-
-        # if self.blr.add_bias:
-        #     raise ValueError('State space model does not support BLR with bias.')
+        ):
+        if type == 'mle':
+            self.blr = mle.MLE(**kwargs)
+        elif type == 'blr':
+            self.blr = bayli.BayesianLinearRegression(
+                **kwargs
+            )
 
     def fit(self, data: DataGenerator):
 
@@ -358,11 +352,11 @@ class StateSpaceModel:
         ::
 
             x_scaled = (x - x_mean) / x_scale
-            y_scaled = W.T @ x_scaled
+            y_scaled = W.T @ x_scaled + b 
             y = y_scaled * y_scale + y_mean
 
-            y = W.T @ (x - x_mean) / x_scale * y_scale + y_mean
-            y = y_scale / x_scale * W.T @ x + (y_mean - y_scale / x_scale * W.T @ x_mean)
+            y = W.T @ (x - x_mean) / x_scale * y_scale + y_mean + b*y_scale
+            y = y_scale / x_scale * W.T @ x + (y_mean - y_scale / x_scale * W.T @ x_mean + b*y_scale)
 
         Returns:
             Weights and bias
