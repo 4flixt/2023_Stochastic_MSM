@@ -4,6 +4,7 @@ from multiprocessing import Pool
 from dataclasses import dataclass
 from typing import List, Tuple, Callable, Optional, Union
 from sklearn.preprocessing import StandardScaler
+import casadi as cas
 
 
 @dataclass
@@ -91,9 +92,60 @@ class MLE:
             Y_scaled = Y
 
         return Y_scaled # type:ignore
+    
+    def _sparse_least_squares_solution(
+            self, 
+            X: np.ndarray, 
+            Y: np.ndarray,
+            w_sparsity: Optional[cas.Sparsity] = None,
+            ) -> np.ndarray:
 
+        """
+        Solves the least squares problem with sparsity pattern.
+        
+        min_W ||Y - XW||
 
-    def fit(self, X: np.ndarray, Y: np.ndarray, *args, **kwargs):
+        If w_sparsity is None, the solution is given by
+
+        W = inv(X.T@X)@X.T@Y
+
+        The sparsity pattern must match the shape of W.
+        """
+
+        # Solve for W without sparsity pattern
+        if w_sparsity is None:
+            W = np.linalg.inv(X.T@X)@X.T@Y
+            return W
+
+        elif isinstance(w_sparsity, cas.Sparsity):
+            w_sparsity = np.array(w_sparsity, dtype=bool)
+
+        elif isinstance(w_sparsity, np.ndarray):
+            w_sparsity = w_sparsity.astype(bool)
+
+        W_shape = (X.shape[1], Y.shape[1])
+
+        if not w_sparsity.shape == W_shape:
+            raise ValueError('The shape of w_sparsity must be equal to the shape of W.')
+        
+        # Solve for W with known sparisty pattern
+        W = np.zeros(w_sparsity.shape)
+
+        for k,sparsity_k in enumerate(w_sparsity.T):
+            Xk = X[:,sparsity_k]
+            yk = Y[:,[k]]
+
+            wk = np.linalg.inv(Xk.T@Xk)@Xk.T@yk
+            W[sparsity_k,k] = wk.flatten()
+
+        return W
+
+    def fit(
+            self, 
+            X: np.ndarray, 
+            Y: np.ndarray, 
+            w_sparsity: Optional[cas.Sparsity] = None,
+            *args, **kwargs):
         """
         Fit the model to the data.
         """
@@ -112,7 +164,7 @@ class MLE:
         self.Sigma_p_bar = np.linalg.inv(self.Lambda_p_bar)
 
         # Estimate parameters
-        self.W = self.Sigma_p_bar@X_final.T@Y_final
+        self.W = self._sparse_least_squares_solution(X_final, Y_final, w_sparsity=w_sparsity)
 
         DY = Y_final - X_final@self.W
         # Estimate noise covariance
@@ -158,4 +210,5 @@ class MLE:
             return (Y_pred, Y_std_pred) 
         elif uncert_type == 'cov':
             return (Y_pred, Sigma_y_pred)
-        
+
+
