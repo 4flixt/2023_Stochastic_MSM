@@ -176,8 +176,9 @@ class SMPCBase(ABC):
 
         dy = self._y_stage - self._y_setpoint
         du = self._u_stage - self._u_previous
+        u = self._u_stage
 
-        stage_term = dy.T@Q@dy + c.T@self._y_stage + du.T@R@du + du.T@delR@du
+        stage_term = dy.T@Q@dy + c.T@self._y_stage + u.T@R@u + du.T@delR@du
 
         stage_cost = cas.Function('stage_cost', 
                                     [self._y_stage, self._u_stage, self._u_previous, self._y_setpoint], 
@@ -211,6 +212,9 @@ class SMPCBase(ABC):
             lbg=self.cons.cons_lb, 
             ubg=self.cons.cons_ub
             )
+
+        self.stats = self.solver.stats()
+
 
         self.opt_x_num.master = sol['x']
         self.opt_aux_num.master = self.opt_aux_fun(self.opt_x_num, self.opt_p_num)
@@ -294,9 +298,13 @@ class SMPCBase(ABC):
         cp = np.sqrt(2)*scipy.special.erfinv(2*self.settings.prob_chance_cons -1)
         self.cp = cp
 
+        offset_list = []
+
         for i, H_i in enumerate(cas.vertsplit(H)):
-            chance_cons_determ = H_i@y_pred + cp*cas.sqrt(H_i@Sigma_y_pred@H_i.T)
+            offset = cp*cas.sqrt(H_i@Sigma_y_pred@H_i.T)
+            chance_cons_determ = H_i@y_pred + offset
             self.cons.add_cons(chance_cons_determ, cons_ub=self.chance_cons.cons_ub[i], cons_lb=None)
+            offset_list.append(offset)
 
         """ Objective """
         obj = 0
@@ -322,6 +330,7 @@ class SMPCBase(ABC):
         opt_aux_expr = ct.struct_SX([
             ct.entry('Sigma_y_pred', expr=Sigma_y_pred),
             ct.entry('H', expr=H),
+            ct.entry('offset', expr=cas.vertcat(*offset_list)),
         ])
 
         self.opt_aux_fun = cas.Function('opt_aux_fun', [opt_x, opt_p], [opt_aux_expr])
