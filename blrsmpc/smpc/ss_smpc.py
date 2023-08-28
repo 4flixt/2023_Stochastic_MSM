@@ -50,13 +50,22 @@ class StateSpaceSMPC(base.SMPCBase):
         else:
             self.S_y = np.eye(self.sid_model.n_y)
 
-    def _get_covariance(self, x_arx: cas.SX, P0) -> cas.SX:
+    def _get_covariance(self, m: cas.SX, P0) -> cas.SX:
         Sigma_e = self.sid_model.blr.Sigma_e
 
         if not self.settings.with_cov:
             Sigma_e = np.diag(np.diag(Sigma_e))
 
-        Sigma_y_new = (Sigma_e*(x_arx.T@self.sid_model.blr.Sigma_p_bar@x_arx)+Sigma_e)
+        if self.sid_model.blr.state['scale_x']:
+            mu_x = self.sid_model.blr.scaler_x.mean_
+            s_x = self.sid_model.blr.scaler_x.scale_
+
+            m = (m - mu_x)/s_x
+
+        if self.sid_model.blr.state['add_bias']:
+            m = cas.vertcat(m, 1)
+
+        Sigma_y_new = (Sigma_e*(m.T@self.sid_model.blr.Sigma_p_bar@m)+Sigma_e)
         Sigma_y_new = self.S_y@Sigma_y_new@self.S_y.T
 
 
