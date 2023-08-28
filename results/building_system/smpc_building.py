@@ -44,14 +44,13 @@ ms_mpc.set_objective(
     R    = 10*np.eye(msm.n_u),
 )
 
-T_lb_12 = 20
-T_lb_34 = 18
+T_lb = 18
 T_ub = 30
 
 y = ms_mpc._y_stage
-ms_mpc.set_chance_cons(expr =  y[1:], ub = T_ub)
-ms_mpc.set_chance_cons(expr = -y[1:], ub = -T_lb)
-# ms_mpc.set_chance_cons(expr =  y[1]-y[0], ub = -1)
+ms_mpc.set_chance_cons(expr =  y, ub = T_ub)
+ms_mpc.set_chance_cons(expr = -y, ub = -T_lb)
+ms_mpc.set_chance_cons(expr =  y[1]-y[0], ub = -1)
 
 ms_mpc.setup()
 
@@ -95,7 +94,7 @@ u_list = cas.vertsplit(sys.u[-msm.data_setup.T_ini:])
 ms_mpc.make_step(y_list, u_list)
 
 
-
+print(f'Solver success: {ms_mpc.stats["success"]}')
 # %%
 
 t_past = np.arange(-msm.data_setup.T_ini,0)
@@ -138,9 +137,20 @@ sys.simulate(ms_mpc, 50)
 # %%
 
 fig, ax = plt.subplots(3,1, sharex=True)
-meas_lines = ax[0].plot(sys.time, sys.y)
-input_lines = ax[1].step(sys.time, sys.u[:,:4])
-amb_temp = ax[2].step(sys.time, sys.x[:,4])
+meas_lines = ax[0].plot(sys.time/sys.dt, sys.y)
+input_lines = ax[1].step(sys.time/sys.dt, sys.u[:,:4])
+amb_temp = ax[2].step(sys.time/sys.dt, sys.x[:,4])
+
+ax[0].set_prop_cycle(None)
+t_pred = np.arange(msm.data_setup.N)+sys.time[-1]/sys.dt
+ax[0].plot(t_pred, ms_mpc.res_y_pred, linestyle='--')
+ax[0].set_prop_cycle(None)
+for k in range(msm.n_y):
+    ax[0].fill_between(t_pred, 
+                       ms_mpc.res_y_pred[:,k]+ms_mpc.cp*ms_mpc.res_y_std[:,k], 
+                       ms_mpc.res_y_pred[:,k]-ms_mpc.cp*ms_mpc.res_y_std[:,k], 
+                       alpha=.2)
+
 ax[0].axhline(18, color='k', linestyle='--')
 ax[0].legend(meas_lines, ['rooms 1', 'rooms 2', 'rooms 3', 'rooms 4'], ncol=4)
 

@@ -38,7 +38,7 @@ blrsmpc.plotconfig.config_mpl(os.path.join('..', '..', 'blrsmpc', 'plotconfig', 
 
 # Initial state mean and covariance
 # Used for sampling and for the KF
-sigma_x0 = np.array([3,3,3,3,5])
+sigma_x0 = np.array([4,4,4,4,7])
 x0_bar = np.array([20,20,20,20,15])
 
 def get_x0() -> np.ndarray:
@@ -71,7 +71,7 @@ random_input = sid.RandomInput(
     n_u=5, 
     u_lb = np.array([-6,-6,-6,-6, 0]).reshape(-1,1),
     u_ub = np.array([6,6,6,6,30]).reshape(-1,1),
-    switch_prob=np.array([0.5, 0.5, 0.5, 0.5, 0.04]).reshape(-1,1)
+    switch_prob=np.array([0.5, 0.5, 0.5, 0.5, 0.5]).reshape(-1,1)
     )
 
 
@@ -128,7 +128,7 @@ sid_settings = {
     'estimate_covariance': True,
     'scale_x': True,
     'scale_y': True,
-    'add_bias': True,
+    'add_bias': False,
     'type': 'mle'
 }
 
