@@ -44,13 +44,14 @@ ms_mpc.set_objective(
     R    = 10*np.eye(msm.n_u),
 )
 
-T_lb = 18
+T_lb_12 = 20
+T_lb_34 = 18
 T_ub = 30
 
 y = ms_mpc._y_stage
 ms_mpc.set_chance_cons(expr =  y[1:], ub = T_ub)
 ms_mpc.set_chance_cons(expr = -y[1:], ub = -T_lb)
-ms_mpc.set_chance_cons(expr =  y[1]-y[0], ub = -1)
+# ms_mpc.set_chance_cons(expr =  y[1]-y[0], ub = -1)
 
 ms_mpc.setup()
 
