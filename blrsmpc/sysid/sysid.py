@@ -87,10 +87,15 @@ class SystemGenerator:
     def building_system(self, x0=None, state_feedback=True):
         A, B, C = system.building_system.get_ABC(self.dt)
 
+        if isinstance(x0, Callable):
+            x0 = x0()
         if x0 is None:
             t_build = np.random.uniform(14,27, size=(4,1))
             to = np.random.uniform(0,30, size=(1,1))
             x0 = np.concatenate([t_build, to], axis=0)
+
+        assert isinstance(x0, np.ndarray), 'x0 must be a numpy array.'
+        assert x0.shape == (A.shape[0], 1), 'x0 must have shape (n_x, 1).'
 
         if not state_feedback:
             C = np.array([
