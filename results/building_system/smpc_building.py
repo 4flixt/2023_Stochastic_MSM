@@ -14,15 +14,15 @@ import importlib
 import matplotlib as mpl
 colors = mpl.rcParams['axes.prop_cycle'].by_key()['color']
 
-sys.path.append(os.path.join('..'))
+sys.path.append(os.path.join('..', '..'))
 
-import smpc
-import sysid as sid
-import helper
+from blrsmpc import smpc
+from blrsmpc.sysid import sysid as sid
+from blrsmpc import helper
 importlib.reload(smpc)
 # %%
 
-load_name = os.path.join('sid_results', 'building_prediction_models.pkl')
+load_name = os.path.join('sid_results', 'sid_building_tini_3_n_12.pkl')
 with open(load_name, "rb") as f:
     res = pickle.load(f)
     ssm = res['ssm']
@@ -42,20 +42,21 @@ ms_mpc.set_objective(
     Q    = 0*np.eye(msm.n_y),
     delR = 5*np.eye(msm.n_u),
     R    = 10*np.eye(msm.n_u),
-    P    = 0*np.eye(msm.n_y),
 )
 
+T_lb = 18
+T_ub = 30
+
 y = ms_mpc._y_stage
-ms_mpc.set_chance_cons(expr =  y[1:], ub = 25)
-ms_mpc.set_chance_cons(expr = -y[1:], ub = -18)
-# y[0]-y[1] >= 1
+ms_mpc.set_chance_cons(expr =  y[1:], ub = T_ub)
+ms_mpc.set_chance_cons(expr = -y[1:], ub = -T_lb)
 ms_mpc.set_chance_cons(expr =  -y[0]+y[1], ub = -1)
 
 ms_mpc.setup()
 
-# ms_mpc.lb_opt_x['y_pred',:] = 18*np.ones(4)
 ms_mpc.lb_opt_x['u_pred',:] = np.array([-6, -6, -6, -6, 10])
 ms_mpc.ub_opt_x['u_pred',:] = np.array([6, 6, 6, 6, 10])
+
 
 # %%
 
@@ -68,7 +69,7 @@ sys_generator = sid.SystemGenerator(
         sig_x=res['sigma_x'],
         sig_y=res['sigma_y'],
         case_kwargs={'state_feedback':False, 'x0': x0},
-        dt=1,
+        dt=3600,
     )
 
 sys = sys_generator()
@@ -85,14 +86,12 @@ sys.simulate(random_input, 3)
 
 
 # %%
+# %%
 # Solve MPC problem once and investigate the predictions
 y_list = cas.vertsplit(sys.y[-msm.data_setup.T_ini:])
 u_list = cas.vertsplit(sys.u[-msm.data_setup.T_ini:])
 
 ms_mpc.make_step(y_list, u_list)
-
-# %% 
-
 
 
 
@@ -114,7 +113,7 @@ for k in range(msm.n_y):
     
 ax[0].set_prop_cycle(None)
 ax[0].plot(t_past, ms_mpc.res_y_past, '-x')
-ax[0].axhline(18, color='k', linestyle='--')
+ax[0].axhline(T_lb, color='k', linestyle='--')
 ax[0].axvline(0, color='k', linestyle='-')
 ax[0].text(-2, 18.2, '$\\leftarrow$ past')
 ax[0].text(.5, 18.2, 'pred. $\\rightarrow$')
