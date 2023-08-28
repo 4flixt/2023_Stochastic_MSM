@@ -23,7 +23,7 @@ import random
 import copy
 
 
-sys.path.append(os.path.join('..'))
+sys.path.append(os.path.join('..', '..'))
 from blrsmpc.sysid import sysid as sid
 from blrsmpc import smpc
 from blrsmpc import system
@@ -32,7 +32,7 @@ from blrsmpc import plotconfig
 
 
 # Configure matplotlib and load notation from tex
-plotconfig.config_mpl(os.path.join('..', 'blrsmpc', 'plotconfig', 'notation.tex'))
+plotconfig.config_mpl(os.path.join('..', '..', 'blrsmpc', 'plotconfig', 'notation.tex'))
 
 # Export figures?
 export_figures = False
@@ -65,7 +65,6 @@ def setup_controller(
         Q    = 0*np.eye(sid_model.n_y),
         delR = 5*np.eye(sid_model.n_u),
         R    = 10*np.eye(sid_model.n_u),
-        P    = 0*np.eye(sid_model.n_y),
     )
 
     y = controller._y_stage
@@ -101,7 +100,7 @@ def get_system_for_case_study(
             sig_x=sig_x,
             sig_y=sig_y,
             case_kwargs={'state_feedback':False, 'x0': x0},
-            dt=1,
+            dt=3600,
         )
     
     sys = sys_generator()
@@ -167,6 +166,7 @@ def sample_closed_loop(
         N=N_horizon,
         T_ini=0,
         n_samples = n_samples,
+        dt = 3600
     )
 
     np.random.seed(99)
@@ -255,12 +255,15 @@ def plot_open_loop_prediction_with_samples(
     else:
         start_ind = sid_model.data_setup.T_ini
 
+    dt = sid_model.data_setup.dt
+
+
     for sim_res in open_loop_samples.sim_results:
         ax[0].set_prop_cycle(None)
-        lines['y_samples'].append(ax[0].plot((sim_res.time-3)[start_ind:], sim_res.y[start_ind:], alpha=.1))
+        lines['y_samples'].append(ax[0].plot((sim_res.time/dt-3)[start_ind:], sim_res.y[start_ind:], alpha=.1))
 
         ax[-1].set_prop_cycle(None)
-        lines['t0_samples'].append(ax[-1].plot((sim_res.time-3)[start_ind:], sim_res.x[start_ind:,4], alpha=.1))
+        lines['t0_samples'].append(ax[-1].plot((sim_res.time/dt-3)[start_ind:], sim_res.x[start_ind:,4], alpha=.1))
 
     return fig, ax,lines
 
@@ -281,10 +284,12 @@ def plot_closed_loop_trajectory(
     lines['u_samples'] = []
     lines['t0_samples'] = []
 
+    dt = closed_loop_res.setup.dt
+
     for sim_res_k in closed_loop_res.sim_results:
-        lines['y_samples'].append(ax[0].plot(sim_res_k.time, sim_res_k.y, alpha=.2))
-        lines['u_samples'].append(ax[1].step(sim_res_k.time, sim_res_k.u[:,:4], where='post', alpha=.2))
-        lines['t0_samples'].append(ax[2].plot(sim_res_k.time, sim_res_k.x[:,4], alpha=.2))
+        lines['y_samples'].append(ax[0].plot(sim_res_k.time/dt, sim_res_k.y, alpha=.2))
+        lines['u_samples'].append(ax[1].step(sim_res_k.time/dt, sim_res_k.u[:,:4], where='post', alpha=.2))
+        lines['t0_samples'].append(ax[2].plot(sim_res_k.time/dt, sim_res_k.x[:,4], alpha=.2))
 
         for ax_k in ax:
             ax_k.set_prop_cycle(None)
@@ -386,7 +391,7 @@ def get_closed_loop_kpis(
 # %% 
 if __name__ == '__main__':
 
-    sid_result_file_name = '02_building_prediction_models.pkl'
+    sid_result_file_name = 'sid_building_tini_3_n_12.pkl'
 
     sid_res = load_sid_results(sid_result_file_name)
 
@@ -432,15 +437,16 @@ if __name__ == '__main__':
     np.random.seed(99)
 
     savepath = os.path.join('smpc_results')
-    savename = '04_ms_smpc_closed_loop_results_with_cov.pkl'
+    savename = 'ms_smpc_closed_loop_results_with_cov.pkl'
+    overwrite = True
         
-    if os.path.exists(os.path.join(savepath, savename)):
+    if os.path.exists(os.path.join(savepath, savename)) and not overwrite:
         print('Loading closed-loop results from file... make sure no settings have changed!')
         with open(os.path.join(savepath, savename), 'rb') as f:
             closed_loop_ms = pickle.load(f)
     else:
         print('Sampling closed-loop results... (this may take a while)')
-        closed_loop_ms = sample_closed_loop(ms_smpc, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
+        closed_loop_ms = sample_closed_loop(ms_smpc, sid_res, n_samples = 2, N_horizon=50, reference_sys=ref_sys)
 
         with open(os.path.join(savepath, savename), 'wb') as f:
             pickle.dump(closed_loop_ms, f)
@@ -457,8 +463,8 @@ if __name__ == '__main__':
     """
     ### SMPC with state-space model
     """
-    # %%
-    
+# %%
+
     sid_res = load_sid_results(sid_result_file_name)
 
     smpc_settings = smpc.base.SMPCSettings(
