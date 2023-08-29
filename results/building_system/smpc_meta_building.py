@@ -16,6 +16,7 @@ from enum import Enum, auto
 import casadi as cas
 import pdb
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import importlib
 import functools
 import time
@@ -33,6 +34,7 @@ from blrsmpc import plotconfig
 
 # Configure matplotlib and load notation from tex
 plotconfig.config_mpl(os.path.join('..', '..', 'blrsmpc', 'plotconfig', 'notation.tex'))
+colors = mpl.rcParams['axes.prop_cycle'].by_key()['color']
 
 # Export figures?
 export_figures = False
@@ -63,13 +65,13 @@ def setup_controller(
 
     controller.set_objective(
         Q    = 0*np.eye(sid_model.n_y),
-        delR = 1*np.eye(sid_model.n_u),
+        delR = 5*np.eye(sid_model.n_u),
         R    = 10*np.eye(sid_model.n_u),
     )
 
     y = controller._y_stage
     # controller.set_chance_cons(expr =  y, ub = 30)
-    controller.set_chance_cons(expr = -y, ub = -18)
+    controller.set_chance_cons(expr = -y[:4], ub = -18)
     # y[0]-y[1] >= 1
     controller.set_chance_cons(expr =  -y[0]+y[1], ub = -1)
 
@@ -84,6 +86,7 @@ def setup_controller(
 def get_system_for_case_study(
         sig_x, 
         sig_y, 
+        T_ini: int,
         t_0_rooms = np.array([23,20,20,20]), 
         t_ambient = 10, 
         link_controller: Optional[Union[smpc.StateSpaceSMPC, smpc.MultiStepSMPC]] = None,
@@ -95,11 +98,16 @@ def get_system_for_case_study(
         np.atleast_2d(t_ambient).reshape(-1,1),
     ), axis=0)
 
+    if sig_y.shape[0] == 4:
+        state_feedback = False
+    elif sig_y.shape[0] == 5:
+        state_feedback = True
+
     sys_generator = sid.SystemGenerator(
             sys_type=sid.SystemType.BUILDING,
             sig_x=sig_x,
             sig_y=sig_y,
-            case_kwargs={'state_feedback':False, 'x0': x0},
+            case_kwargs={'state_feedback':state_feedback, 'x0': x0},
             dt=3600,
         )
     
@@ -116,7 +124,7 @@ def get_system_for_case_study(
             )
 
         # Generate an initial sequence of measurements
-        sys.simulate(random_input, 3)
+        sys.simulate(random_input, )
     else:
         for attr in ['_x', '_u', '_d', '_y', 't_now', '_time', 'x0']:
             setattr(sys, attr, copy.copy(getattr(init_from_reference_sys, attr)))
@@ -146,7 +154,7 @@ def sample_open_loop_prediction(
 
     data_gen = sid.DataGenerator(
         get_sys = functools.partial(get_system_for_case_study, 
-                                    sid_res['sigma_x'], sid_res['sigma_y'],
+                                    sid_res['sigma_x'], sid_res['sigma_y'], sid_res['t_ini'],
                                     init_from_reference_sys=reference_sys),
         setup = data_gen_setup,
         u_fun = open_loop_pred_input,
@@ -174,7 +182,7 @@ def sample_closed_loop(
     data_gen = sid.DataGenerator(
         get_sys = functools.partial(
             get_system_for_case_study, 
-            sid_res['sigma_x'], sid_res['sigma_y'], 
+            sid_res['sigma_x'], sid_res['sigma_y'], sid_res['t_ini'],
             link_controller=controller,
             init_from_reference_sys=reference_sys),
         setup = data_gen_setup,
@@ -205,14 +213,23 @@ def plot_open_loop_prediction(
 
     lines = {}
 
-    lines['y_pred'] = ax[0].plot(t_pred, controller.res_y_pred)
+    print(f'Sigma_y shape = {sid_model.data_setup.sig_y.shape[0]}')
+
+    if sid_model.data_setup.sig_y.shape[0] == 5:
+        state_feedback = True
+    elif sid_model.data_setup.sig_y.shape[0] == 4:
+        state_feedback = False
+    else:
+        raise ValueError('sig_y has wrong shape')
+
+    lines['y_pred'] = ax[0].plot(t_pred, controller.res_y_pred[:,:4])
     ax[0].set_prop_cycle(None)
-    ax[0].plot(t_pred, controller.res_y_pred+controller.cp*controller.res_y_std, '--')
+    ax[0].plot(t_pred, controller.res_y_pred[:,:4]+controller.cp*controller.res_y_std[:,:4], '--')
     ax[0].set_prop_cycle(None)
-    ax[0].plot(t_pred, controller.res_y_pred-controller.cp*controller.res_y_std, '--')
+    ax[0].plot(t_pred, controller.res_y_pred[:,:4]-controller.cp*controller.res_y_std[:,:4], '--')
         
     ax[0].set_prop_cycle(None)
-    lines['y_past'] = ax[0].plot(t_past, controller.res_y_past, 'x')
+    lines['y_past'] = ax[0].plot(t_past, controller.res_y_past[:,:4], 'x')
     ax[0].axhline(18, color='k', linestyle=':')
     ax[0].axvline(0, color='k', linestyle='-')
 
@@ -221,9 +238,13 @@ def plot_open_loop_prediction(
     lines['u_past'] = ax[1].step(t_past,controller.res_u_past[:,:4], 'x', where='post')
     ax[1].axvline(0, color='k', linestyle='-')
 
-    lines['t0_pred'] = ax[2].plot(t_pred[:-1],controller.res_u_pred[:-1,4])
-    ax[2].set_prop_cycle(None)
-    # lines['t0_past'] = ax[2].plot(t_past,controller.res_u_past[:,4], 'x')
+    # lines['t0_pred'] = ax[2].plot(t_pred[:-1],controller.res_u_pred[:-1,4])
+
+    if state_feedback:
+        lines['y_pred_t0'] = ax[2].plot(t_pred, controller.res_y_pred[:,4], color=colors[0])
+        ax[2].plot(t_pred, controller.res_y_pred[:,4]+controller.cp*controller.res_y_std[:,4], '--', color=colors[0])
+        ax[2].plot(t_pred, controller.res_y_pred[:,4]-controller.cp*controller.res_y_std[:,4], '--', color=colors[0])
+
     ax[2].axvline(0, color='k', linestyle='-')
 
     if with_annotations:
@@ -255,15 +276,18 @@ def plot_open_loop_prediction_with_samples(
     else:
         start_ind = sid_model.data_setup.T_ini
 
+
     dt = sid_model.data_setup.dt
 
 
+
     for sim_res in open_loop_samples.sim_results:
+        time = sim_res.time[start_ind:]/dt - sim_res.time[start_ind]/dt
         ax[0].set_prop_cycle(None)
-        lines['y_samples'].append(ax[0].plot((sim_res.time/dt-3)[start_ind:], sim_res.y[start_ind:], alpha=.1))
+        lines['y_samples'].append(ax[0].plot(time, sim_res.y[start_ind:,:4], alpha=.1))
 
         ax[-1].set_prop_cycle(None)
-        lines['t0_samples'].append(ax[-1].plot((sim_res.time/dt-3)[start_ind:], sim_res.x[start_ind:,4], alpha=.1))
+        lines['t0_samples'].append(ax[-1].plot(time, sim_res.x[start_ind:,4], alpha=.1))
 
     return fig, ax,lines
 
@@ -392,7 +416,7 @@ def get_closed_loop_kpis(
 if __name__ == '__main__':
     np.random.seed(99)
 
-    sid_result_file_name = 'sid_building_tini_3_n_12.pkl'
+    sid_result_file_name = 'sid_building_tini_1_n_12.pkl'
 
     sid_res = load_sid_results(sid_result_file_name)
 
@@ -406,10 +430,9 @@ if __name__ == '__main__':
 
     # Reference system is simulated with random initial sequence.
     # This random initial sequence can be transfereed to the test system
-    ref_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'])    
+    ref_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'], sid_res['t_ini'])    
 
-    test_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'], init_from_reference_sys=ref_sys)
-
+    test_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'], sid_res['t_ini'], init_from_reference_sys=ref_sys)
 
     # %%
     np.random.seed(99)
@@ -439,7 +462,7 @@ if __name__ == '__main__':
     np.random.seed(99)
 
     savepath = os.path.join('smpc_results')
-    savename = '03_ms_smpc_closed_loop_results_with_cov_20.pkl'
+    savename = '05_ms_smpc_closed_loop_results_with_cov_20_state_fb.pkl'
     overwrite = False
         
     if os.path.exists(os.path.join(savepath, savename)) and not overwrite:
@@ -477,7 +500,7 @@ if __name__ == '__main__':
 
     ss_smpc = setup_controller(sid_res['ssm'], smpc_settings)
 
-    test_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'], init_from_reference_sys=ref_sys)
+    test_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'], sid_res['t_ini'], init_from_reference_sys=ref_sys)
 
     # %%
     ss_smpc.read_from(test_sys)
@@ -503,7 +526,7 @@ if __name__ == '__main__':
     np.random.seed(99)
 
     savepath = os.path.join('smpc_results')
-    savename = '02_ss_smpc_closed_loop_results_with_cov_20.pkl'
+    savename = '05_ss_smpc_closed_loop_results_with_cov_20_state_fb.pkl'
     overwrite = False
 
     if os.path.exists(os.path.join(savepath, savename)) and not overwrite:
@@ -531,11 +554,12 @@ if __name__ == '__main__':
     ms_smpc = setup_controller(sid_res['msm'], smpc_settings)
     ss_smpc = setup_controller(sid_res['ssm'], smpc_settings)
 
-    test_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'], init_from_reference_sys=ref_sys)
+    test_sys = get_system_for_case_study(sid_res['sigma_x'], sid_res['sigma_y'], sid_res['t_ini'], init_from_reference_sys=ref_sys)
 
     ss_smpc.read_from(test_sys)
     ms_smpc.read_from(test_sys)
 
+    # Call controller with reading from system (call with None, None)
     ss_smpc(None, None)
     ms_smpc(None, None)
 
@@ -563,14 +587,14 @@ if __name__ == '__main__':
     ax[2,0].set_ylabel('amb.\n temp. [°C]')
     ax[2,0].set_xlabel('time [h]')
     ax[2,1].set_xlabel('time [h]')
-    ax[2,0].text(-2.5, 8, '$\\leftarrow$ past')
+    # ax[2,0].text(-1.6, 8, '$\\leftarrow$ past')
     ax[2,0].text(.5, 8, 'pred. $\\rightarrow$')
 
 
     fig.align_ylabels()
     fig.tight_layout(pad=.1)
     dummy_lines = [
-        ax[0,0].plot([], [], color='k', marker='x', markersize = 4, linestyle='none', label='initial measurements')[0],
+        ax[0,0].plot([], [], color='k', marker='x', markersize = 4, linestyle='none', label='initial measurement')[0],
         ax[0,0].plot([], [], color='k', linestyle='-', label='open-loop pred.')[0],
         ax[0,0].plot([], [], color='k', linestyle='--', label=r'$\pm c_p\sigma$')[0],
         ax[0,0].plot([], [], color='k', linestyle='none', marker='$\equiv$', markersize=8, mew=.1, label='sampled closed-loop traj.', alpha=.4)[0],
