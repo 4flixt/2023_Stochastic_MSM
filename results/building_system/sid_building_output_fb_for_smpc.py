@@ -38,7 +38,7 @@ blrsmpc.plotconfig.config_mpl(os.path.join('..', '..', 'blrsmpc', 'plotconfig', 
 
 # Initial state mean and covariance
 # Used for sampling and for the KF
-sigma_x0 = np.array([4,4,4,4,7])
+sigma_x0 = np.array([3,3,3,3,5])
 x0_bar = np.array([20,20,20,20,15])
 
 def get_x0() -> np.ndarray:
@@ -49,17 +49,17 @@ def get_x0() -> np.ndarray:
 
 # Process and measurement noise variances
 sig_x = np.array([0.0,0.0,0.0,0.0,0.5]) 
-sig_y = np.ones(4)*0.1
-T_ini = 3
+sig_y = np.ones(5)*0.1
+T_ini = 1
 N = 12
-
+state_feedback = True
 
 sys_generator = sid.SystemGenerator(
     sys_type=sid.SystemType.BUILDING,
     sig_x=sig_x,
     sig_y=sig_y,
     dt=3600,
-    case_kwargs={'state_feedback': False, 'x0': get_x0}
+    case_kwargs={'state_feedback': state_feedback, 'x0': get_x0}
 )
 
 # Prepare the data set 
@@ -100,7 +100,7 @@ test_sys_ref = sid.SystemGenerator(
         dt=sys_generator.dt,
         P0 = np.zeros((5,5)),
         case_kwargs={
-            'state_feedback': False,
+            'state_feedback': state_feedback,
             'x0': x0_test
         },
 )()
@@ -145,7 +145,7 @@ y_msm_pred = y_msm_pred.reshape(-1,data_test.n_y)
 y_msm_pred_std = y_msm_pred_std.reshape(-1,data_test.n_y)
 y_ssm_pred, y_ssm_pred_std = ssm.predict_sequence(data_test.M[:,[0]], with_noise_variance=True)
 # %%
-figsize = (blrsmpc.plotconfig.textwidth, blrsmpc.plotconfig.textwidth/2)
+figsize = (blrsmpc.plotconfig.textwidth, blrsmpc.plotconfig.textwidth)
 fig, ax = plt.subplots(data_test.n_y, 1,figsize=figsize, dpi=300, sharex=True)
 
 t_ini = data_test.setup.T_ini

@@ -311,7 +311,7 @@ def plot_closed_loop_trajectory(
     dt = closed_loop_res.setup.dt
 
     for sim_res_k in closed_loop_res.sim_results:
-        lines['y_samples'].append(ax[0].plot(sim_res_k.time/dt, sim_res_k.y, alpha=.2))
+        lines['y_samples'].append(ax[0].plot(sim_res_k.time/dt, sim_res_k.y[:,:4], alpha=.2))
         lines['u_samples'].append(ax[1].step(sim_res_k.time/dt, sim_res_k.u[:,:4], where='post', alpha=.2))
         lines['t0_samples'].append(ax[2].plot(sim_res_k.time/dt, sim_res_k.x[:,4], alpha=.2))
 
@@ -479,7 +479,7 @@ if __name__ == '__main__':
     # %%
 
     _ = plot_closed_loop_trajectory(closed_loop_ms)
-    _ = plot_closed_loop_cons_detail(closed_loop_ms, ms_smpc)
+    # _ = plot_closed_loop_cons_detail(closed_loop_ms, ms_smpc)
     get_closed_loop_kpis(closed_loop_ms, ms_smpc).mean()
     # %%
 
@@ -611,7 +611,7 @@ if __name__ == '__main__':
     ]
     ax[0,0].legend(handles=dummy_lines, ncols=4, loc='upper center', bbox_to_anchor=(.5, .85), fontsize='small', title='room')
 
-    savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
+    savepath = os.path.join('..', '..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
     savename = 'open_loop_pred_ms_vs_ss_smpc'
     if export_figures:
         fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
@@ -648,106 +648,11 @@ if __name__ == '__main__':
     ]
     ax[0,0].legend(handles=dummy_lines, loc='upper right', bbox_to_anchor=(1, 1.1), fontsize='small', title='room')
 
-    savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
+    savepath = os.path.join('..', '..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
     savename = 'closed_loop_pred_ms_vs_ss_smpc'
     if export_figures:
         fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
 
-
-    # %% [markdown]
-    """
-    ## Comparison of SMPC with and without full covariance estimation
-    """
-    # %%
-    smpc_settings_wo_cov = smpc.base.SMPCSettings(
-        prob_chance_cons=smpc_settings.prob_chance_cons,
-        with_cov=False
-    )
-    smpc_settings_wo_cov.surpress_ipopt_output()
-    ms_smpc_with_cov = setup_controller(sid_res['msm'], smpc_settings)
-    ms_smpc_wo_cov = setup_controller(sid_res['msm'], smpc_settings_wo_cov)
-
-    closed_loop_ms_with_cov = sample_closed_loop(ms_smpc_with_cov, sid_res, n_samples = 1, N_horizon=50, reference_sys=ref_sys)
-    closed_loop_ms_wo_cov = sample_closed_loop(ms_smpc_wo_cov, sid_res, n_samples = 1, N_horizon=50, reference_sys=ref_sys)
-
-
-    # %%
-    fig, ax = plt.subplots(2,1, figsize=(plotconfig.columnwidth, plotconfig.columnwidth), sharex=True, dpi=150)
-
-    _,_,lines_ms = plot_closed_loop_cons_detail(closed_loop_ms_with_cov, ms_smpc_with_cov, fig_ax=(fig, ax[0]), with_annotations=False)
-    _,_,lines_ss = plot_closed_loop_cons_detail(closed_loop_ms_wo_cov, ms_smpc_wo_cov, fig_ax=(fig, ax[1]), with_annotations=False)
-    ax[0].axis('equal')
-    ax[1].axis('equal')
-    ax[0].set_ylim(18, 22)
-    ax[1].set_ylim(18, 22)
-    ax[0].set_xlim(17.5, 21.5)
-
-    ax[0].set_title('MSM-SMPC w. full covariance estimation')
-    ax[1].set_title('MSM-SMPC w. only variance estimation')
-
-    ax[0].set_ylabel('temp. room $T_1$ [°C]')
-    ax[1].set_ylabel('temp. room $T_1$ [°C]')
-    ax[1].set_xlabel('temp. room $T_2$ [°C]')
-
-    lines_ms['cov0'].set_label('$\hat\mSigma_{y,k+1}$')
-    lines_ms['covN'].set_label('$\hat\mSigma_{y,k+N}$')
-
-    ax[1].annotate(r'$T_1 - T_2 \geq 1$', xy=(19, 20), xytext=(19.5, 19.5), arrowprops=dict(facecolor='black', shrink=0.05, width=.1, headwidth=4, headlength=3))
-
-    ax[0].legend(loc='lower right')
-
-    fig.tight_layout(pad=.2)
-
-    savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
-    savename = 'closed_loop_detail_ms_smpc_with_vs_wo_cov'
-    if export_figures:
-        fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
-    # %% [markdown]
-    """
-    ## Full sampling of the controller (SS and MS) with only variance information for KPI evaluation
-    """
-    np.random.seed(99)
-
-    ms_smpc_wo_cov = setup_controller(sid_res['msm'], smpc_settings_wo_cov)
-    ss_smpc_wo_cov = setup_controller(sid_res['ssm'], smpc_settings_wo_cov)
-
-    savepath = os.path.join('smpc_results')
-    savename = '04_ss_smpc_closed_loop_results_wo_cov.pkl'
-
-    if os.path.exists(os.path.join(savepath, savename)):
-        print(f'Loading closed-loop results from file {savename}... make sure no settings have changed!')
-        with open(os.path.join(savepath, savename), 'rb') as f:
-            closed_loop_ss_wo_cov = pickle.load(f)
-    else:
-        print('Sampling closed-loop results... (this may take a while)')
-        closed_loop_ss_wo_cov = sample_closed_loop(ss_smpc_wo_cov, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
-
-        with open(os.path.join(savepath, savename), 'wb') as f:
-            pickle.dump(closed_loop_ss_wo_cov, f)
-
-    savename = '04_ms_smpc_closed_loop_results_wo_cov.pkl'
-
-    if os.path.exists(os.path.join(savepath, savename)):
-        print(f'Loading closed-loop results from file {savename}... make sure no settings have changed!')
-        with open(os.path.join(savepath, savename), 'rb') as f:
-            closed_loop_ms_wo_cov = pickle.load(f)
-    else:
-        print('Sampling closed-loop results... (this may take a while)')
-        closed_loop_ms_wo_cov = sample_closed_loop(ms_smpc_wo_cov, sid_res, n_samples = 10, N_horizon=50, reference_sys=ref_sys)
-
-        with open(os.path.join(savepath, savename), 'wb') as f:
-            pickle.dump(closed_loop_ms_wo_cov, f)
-
-
-    # %%
-    fig, ax = plt.subplots(3,2, figsize=(plotconfig.textwidth, .4*plotconfig.textwidth), 
-        sharex=True, sharey='row', dpi=150,
-        gridspec_kw = {'width_ratios':[1, 1], 'height_ratios':[2, 1, 1]}
-        )
-    
-    _, _, ms_lines_closed_loop = plot_closed_loop_trajectory(closed_loop_ms_wo_cov, fig_ax=(fig, ax[:,0]), with_annotations=False)
-    _, _, ss_lines_closed_loop = plot_closed_loop_trajectory(closed_loop_ss_wo_cov, fig_ax=(fig, ax[:,1]), with_annotations=False)
-    
 
     # %% [markdown]
     """
@@ -756,24 +661,19 @@ if __name__ == '__main__':
     # %%
     kpi_closed_loop_ms_with_cov = get_closed_loop_kpis(closed_loop_ms, ms_smpc)
     kpi_closed_loop_ss_with_cov = get_closed_loop_kpis(closed_loop_ss, ss_smpc)
-    kpi_closed_loop_ms_wo_cov = get_closed_loop_kpis(closed_loop_ms_wo_cov, ms_smpc)
-    kpi_closed_loop_ss_wo_cov = get_closed_loop_kpis(closed_loop_ss_wo_cov, ss_smpc)
 
-    kpi_closed_loop_ss_wo_cov
+    def mean_std(x):
+        return '{:.1f}+-{:.1f}'.format(x.mean(),x.std())
 
-    df_ms = pd.concat([
-        kpi_closed_loop_ms_with_cov.mean(),
-        kpi_closed_loop_ms_wo_cov.mean(),
-    ], axis=1, keys=['with cov.', 'w/o cov.'])
+    df_cat = pd.concat([
+        kpi_closed_loop_ms_with_cov.apply(mean_std, axis=0),
+        kpi_closed_loop_ss_with_cov.apply(mean_std, axis=0),
+    ], axis=1, keys=['MSM-SMPC', 'SSM-SMPC'])
 
-    df_ss = pd.concat([
-        kpi_closed_loop_ss_with_cov.mean(),
-        kpi_closed_loop_ss_wo_cov.mean(),
-    ], axis=1, keys=['with cov.', 'w/o cov.'])
-
-    df_cat = pd.concat([df_ms, df_ss], axis=1, keys=['MSM-SMPC', 'SSM-SMPC'])
 
     df_cat
+
+
 
     # %%
 
@@ -787,24 +687,27 @@ if __name__ == '__main__':
 
     tex_str = tex_str.replace('sum\\_of\\_control\\_action', r'$\sum_i Q_i$ [kWh]')
     tex_str = tex_str.replace('cons\\_viol\\_perc', r'cons. viol. [\%]')
+    tex_str = tex_str.replace('+-', r'$\pm$')
 
 
     tex_str_list = tex_str.split('\n')
 
-    tex_str_list.insert(3, r'\cmidrule(lr){2-3} \cmidrule(lr){4-5}')
+    # tex_str_list.insert(3, r'\cmidrule(lr){2-3} \cmidrule(lr){4-5}')
 
     tex_str_list.pop(1) # Remove toprule
 
 
     tex_str =  '\n'.join(tex_str_list)
 
+
     
-    savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'tables')
+    savepath = os.path.join('..', '..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'tables')
     savename = 'closed_loop_results_table.tex'
 
     with open(os.path.join(savepath, savename), 'w') as f:
         f.write(tex_str)
 
+    tex_str
 
 
 # %%
