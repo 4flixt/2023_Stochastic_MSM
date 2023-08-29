@@ -37,7 +37,7 @@ plotconfig.config_mpl(os.path.join('..', '..', 'blrsmpc', 'plotconfig', 'notatio
 colors = mpl.rcParams['axes.prop_cycle'].by_key()['color']
 
 # Export figures?
-export_figures = False
+export_figures = True
 
 # %% [markdown]
 """
@@ -73,7 +73,7 @@ def setup_controller(
     # controller.set_chance_cons(expr =  y, ub = 30)
     controller.set_chance_cons(expr = -y[:4], ub = -18)
     # y[0]-y[1] >= 1
-    controller.set_chance_cons(expr =  -y[0]+y[1], ub = -1)
+    # controller.set_chance_cons(expr =  -y[0]+y[1], ub = -1)
 
     controller.setup()
 
@@ -462,7 +462,7 @@ if __name__ == '__main__':
     np.random.seed(99)
 
     savepath = os.path.join('smpc_results')
-    savename = '05_ms_smpc_closed_loop_results_with_cov_20_state_fb.pkl'
+    savename = '06_ms_smpc_closed_loop_results_with_cov_20_state_fb.pkl'
     overwrite = False
         
     if os.path.exists(os.path.join(savepath, savename)) and not overwrite:
@@ -526,7 +526,7 @@ if __name__ == '__main__':
     np.random.seed(99)
 
     savepath = os.path.join('smpc_results')
-    savename = '05_ss_smpc_closed_loop_results_with_cov_20_state_fb.pkl'
+    savename = '06_ss_smpc_closed_loop_results_with_cov_20_state_fb.pkl'
     overwrite = False
 
     if os.path.exists(os.path.join(savepath, savename)) and not overwrite:
