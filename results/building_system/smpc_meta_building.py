@@ -63,12 +63,12 @@ def setup_controller(
 
     controller.set_objective(
         Q    = 0*np.eye(sid_model.n_y),
-        delR = 5*np.eye(sid_model.n_u),
+        delR = 1*np.eye(sid_model.n_u),
         R    = 10*np.eye(sid_model.n_u),
     )
 
     y = controller._y_stage
-    controller.set_chance_cons(expr =  y, ub = 25)
+    # controller.set_chance_cons(expr =  y, ub = 30)
     controller.set_chance_cons(expr = -y, ub = -18)
     # y[0]-y[1] >= 1
     controller.set_chance_cons(expr =  -y[0]+y[1], ub = -1)
@@ -84,7 +84,7 @@ def setup_controller(
 def get_system_for_case_study(
         sig_x, 
         sig_y, 
-        t_0_rooms = np.array([23,19,19,19]), 
+        t_0_rooms = np.array([23,20,20,20]), 
         t_ambient = 10, 
         link_controller: Optional[Union[smpc.StateSpaceSMPC, smpc.MultiStepSMPC]] = None,
         init_from_reference_sys: Optional[system.System] = None,
@@ -426,7 +426,8 @@ if __name__ == '__main__':
     """
     open_loop_pred_samples_ms = sample_open_loop_prediction(ms_smpc, sid_res, n_samples = 50, reference_sys=ref_sys)
 
-    _ = plot_open_loop_prediction_with_samples(ms_smpc, sid_res['msm'], open_loop_pred_samples_ms)
+    fig, ax = plt.subplots(3,1, gridspec_kw={'height_ratios': [2,1,1]}, sharex=True)
+    _ = plot_open_loop_prediction_with_samples(ms_smpc, sid_res['msm'], open_loop_pred_samples_ms, fig_ax=(fig, ax))
 
 
     # %% [markdown]
@@ -438,7 +439,7 @@ if __name__ == '__main__':
     np.random.seed(99)
 
     savepath = os.path.join('smpc_results')
-    savename = 'ms_smpc_closed_loop_results_with_cov_50.pkl'
+    savename = '03_ms_smpc_closed_loop_results_with_cov_20.pkl'
     overwrite = False
         
     if os.path.exists(os.path.join(savepath, savename)) and not overwrite:
@@ -447,7 +448,7 @@ if __name__ == '__main__':
             closed_loop_ms = pickle.load(f)
     else:
         print('Sampling closed-loop results... (this may take a while)')
-        closed_loop_ms = sample_closed_loop(ms_smpc, sid_res, n_samples = 50, N_horizon=50, reference_sys=ref_sys)
+        closed_loop_ms = sample_closed_loop(ms_smpc, sid_res, n_samples = 20, N_horizon=50, reference_sys=ref_sys)
 
         with open(os.path.join(savepath, savename), 'wb') as f:
             pickle.dump(closed_loop_ms, f)
@@ -502,8 +503,8 @@ if __name__ == '__main__':
     np.random.seed(99)
 
     savepath = os.path.join('smpc_results')
-    savename = 'ss_smpc_closed_loop_results_with_cov_50.pkl'
-    overwrite = True
+    savename = '02_ss_smpc_closed_loop_results_with_cov_20.pkl'
+    overwrite = False
 
     if os.path.exists(os.path.join(savepath, savename)) and not overwrite:
         print('Loading closed-loop results from file... make sure no settings have changed!')
@@ -511,7 +512,7 @@ if __name__ == '__main__':
             closed_loop_ss = pickle.load(f)
     else:
         print('Sampling closed-loop results... (this may take a while)')
-        closed_loop_ss = sample_closed_loop(ss_smpc, sid_res, n_samples = 50, N_horizon=50, reference_sys=ref_sys)
+        closed_loop_ss = sample_closed_loop(ss_smpc, sid_res, n_samples = 20, N_horizon=50, reference_sys=ref_sys)
 
         with open(os.path.join(savepath, savename), 'wb') as f:
             pickle.dump(closed_loop_ss, f)
