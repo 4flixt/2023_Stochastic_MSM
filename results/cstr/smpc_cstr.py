@@ -24,7 +24,7 @@ import pandas as pd
 import matplotlib as mpl
 colors = mpl.rcParams['axes.prop_cycle'].by_key()['color']
 
-sys.path.append(os.path.join('..'))
+sys.path.append(os.path.join('..', '..'))
 
 # %% [markdown]
 """
@@ -38,7 +38,7 @@ from blrsmpc import smpc
 import blrsmpc.sysid.sysid as sid
 from blrsmpc.system import cstr
 
-blrsmpc.plotconfig.config_mpl(os.path.join('..', 'blrsmpc', 'plotconfig', 'notation.tex'))
+blrsmpc.plotconfig.config_mpl(os.path.join('..', '..', 'blrsmpc', 'plotconfig', 'notation.tex'))
 
 # %% [markdown]
 """
@@ -495,8 +495,8 @@ comp_cl_plot_state_fb.draw_frame(49)
 # plt.show(block=True)
 
 # %%
-get_KPI(ms_sys_state_fb, 'MSM (state feedback)')
-get_KPI(ss_sys_state_fb, 'SSM (state feedback)')
+print(get_KPI(ms_sys_state_fb, 'MSM (state feedback)'))
+print(get_KPI(ss_sys_state_fb, 'SSM (state feedback)'))
 
 # %% [markdown]
 """
@@ -506,7 +506,6 @@ get_KPI(ss_sys_state_fb, 'SSM (state feedback)')
 
 # %%
 
-N_steps_closed_loop = 30
 ss_sys_output_fb = get_prepared_sys(ssm_output_fb)
 ms_sys_output_fb = get_prepared_sys(msm_output_fb)
 
@@ -523,7 +522,7 @@ comp_cl_plot_output_fb = ComparisonPlotClosedLoop(
     case_names=['MSM', 'SSM']
 )
 
-comp_cl_plot_output_fb.draw_frame(29)
+comp_cl_plot_output_fb.draw_frame(49)
 
 # %% [markdown]
 # ## Save figure

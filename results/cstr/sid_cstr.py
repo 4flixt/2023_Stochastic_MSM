@@ -19,7 +19,7 @@ import pathlib
 import matplotlib as mpl
 colors = mpl.rcParams['axes.prop_cycle'].by_key()['color']
 
-sys.path.append(os.path.join('..'))
+sys.path.append(os.path.join('..', '..'))
 
 
 # %% [markdown]
@@ -30,7 +30,7 @@ import blrsmpc
 import blrsmpc.sysid.sysid as sid
 from blrsmpc.system import cstr
 
-blrsmpc.plotconfig.config_mpl(os.path.join('..', 'blrsmpc', 'plotconfig', 'notation.tex'))
+blrsmpc.plotconfig.config_mpl(os.path.join('..','..', 'blrsmpc', 'plotconfig', 'notation.tex'))
 importlib.reload(sid)
 
 # %% [markdown]
@@ -279,7 +279,7 @@ for a in ax:
 
 fig.tight_layout()
 
-savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
+savepath = os.path.join('..', '..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
 savename = 'cstr_boxplot_lpd_state_vs_output_feeback'
 fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
 
@@ -331,7 +331,7 @@ df = pd.DataFrame(
 tex_str = df.to_latex()
 tex_str = tex_str.replace('+-', r'$\pm$')
 
-savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'tables')
+savepath = os.path.join('..', '..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'tables')
 savename = 'sid_cstr_lpd.tex'
 
 with open(os.path.join(savepath, savename), 'w') as f:
