@@ -36,6 +36,7 @@ sys.path.append(os.path.join('..', '..'))
 import blrsmpc
 from blrsmpc import smpc
 import blrsmpc.sysid.sysid as sid
+from blrsmpc import helper
 from blrsmpc.system import cstr
 
 blrsmpc.plotconfig.config_mpl(os.path.join('..', '..', 'blrsmpc', 'plotconfig', 'notation.tex'))
@@ -93,7 +94,7 @@ def get_controller( model: Union[sid.MultistepModel, sid.StateSpaceModel], chanc
 
     du = uk - up
 
-    stage_cost = 1e-2*du[0]**2 + 1e-4*du[1]**2
+    stage_cost = 1e-1*du[0]**2 + 1e-4*du[1]**2
 
     if model.n_y == 4:
         print('Model with 4 outputs (state feedback)')
@@ -275,11 +276,13 @@ def run_closed_loop(controller, sys, N_steps):
     U_pred = []
     Y_pred = []
     Y_std_pred = []
+    Opt_Success = []
 
     def save_predictions(s):
         U_pred.append(controller.res_u_pred)
         Y_pred.append(controller.res_y_pred)
         Y_std_pred.append(controller.res_y_std)
+        Opt_Success.append(controller.stats['success'])
 
     controller.read_from(sys)
     sys.simulate(controller, N_steps, callbacks=[save_predictions])
@@ -287,7 +290,8 @@ def run_closed_loop(controller, sys, N_steps):
     closed_loop_res = {
         'U_pred': U_pred,
         'Y_pred': Y_pred,
-        'Y_std_pred': Y_std_pred
+        'Y_std_pred': Y_std_pred,
+        'Opt_Success': Opt_Success,
     }
 
     return closed_loop_res
@@ -403,22 +407,28 @@ class ComparisonPlotClosedLoop:
 ## Functions for key performance indicators (KPIs)
 """
 # %%
-def get_KPI(sys, prefix:str = 'Result'):
-    if sys.n_y == 4:
-        cb = sys.y[:,1]
-        TR = sys.y[:,2]
-        F  = sys.u[:,0]
-    else:
-        cb = sys.y[:,0]
-        TR = sys.y[:,1]
-        F  = sys.u[:,0]
-
-    prod = np.sum(cb*F*cstr.T_STEP_CSTR)
-    cons_viol = np.max(np.maximum(0, TR-T_R_ub))
+def get_KPI_from_sys(sys, prefix:str = 'Result'):
+    prod, cons_viol = get_KPI({'y':sys.y, 'u':sys.u})
 
     # print(f'{prefix}: {prod:.2f} mol with max {cons_viol:.2f} K constraint violation')
 
     return prod, cons_viol
+
+def get_KPI(res_dict):
+    if res_dict['y'].shape[1] == 4:
+        cb = res_dict['y'][:,1]
+        TR = res_dict['y'][:,2]
+        F  = res_dict['u'][:,0]
+    else:
+        cb = res_dict['y'][:,0]
+        TR = res_dict['y'][:,1]
+        F  = res_dict['u'][:,0]
+
+    prod = np.sum(cb*F*cstr.T_STEP_CSTR)
+    cons_viol = np.max(np.maximum(0, TR-T_R_ub))
+
+    return prod, cons_viol
+
 
 # %% [markdown]
 """
@@ -475,6 +485,8 @@ ms_sys_state_fb = get_prepared_sys(msm_state_fb)
 cl_ss_state_fb = run_closed_loop(ss_mpc_state_fb, ss_sys_state_fb, N_steps_closed_loop)
 cl_ms_state_fb = run_closed_loop(ms_mpc_state_fb, ms_sys_state_fb, N_steps_closed_loop)
 
+print(f'MS-SMPC with state-fb all steps success: {np.all(cl_ms_state_fb["Opt_Success"])}')
+print(f'SS-SMPC with state-fb all steps success: {np.all(cl_ss_state_fb["Opt_Success"])}')
 
 # %%
 
@@ -495,8 +507,8 @@ comp_cl_plot_state_fb.draw_frame(49)
 # plt.show(block=True)
 
 # %%
-print(get_KPI(ms_sys_state_fb, 'MSM (state feedback)'))
-print(get_KPI(ss_sys_state_fb, 'SSM (state feedback)'))
+print(get_KPI_from_sys(ms_sys_state_fb, 'MSM (state feedback)'))
+print(get_KPI_from_sys(ss_sys_state_fb, 'SSM (state feedback)'))
 
 # %% [markdown]
 """
@@ -512,6 +524,8 @@ ms_sys_output_fb = get_prepared_sys(msm_output_fb)
 cl_res_ss_output_fb = run_closed_loop(ss_mpc_output_fb, ss_sys_output_fb, N_steps_closed_loop)
 cl_res_ms_output_fb = run_closed_loop(ms_mpc_output_fb, ms_sys_output_fb, N_steps_closed_loop)
 
+print(f'MS-SMPC with output-fb all steps success: {np.all(cl_res_ms_output_fb["Opt_Success"])}')
+print(f'SS-SMPC with output-fb all steps success: {np.all(cl_res_ss_output_fb["Opt_Success"])}')
 
 # %%
 
@@ -522,21 +536,21 @@ comp_cl_plot_output_fb = ComparisonPlotClosedLoop(
     case_names=['MSM', 'SSM']
 )
 
-comp_cl_plot_output_fb.draw_frame(49)
+comp_cl_plot_output_fb.draw_frame(40)
 
 # %% [markdown]
 # ## Save figure
 
 # %%
 
-savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
+savepath = os.path.join('..', '..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
 savename = 'cstr_closed_loop_output_feedback_msm_vs_ssm'
 comp_cl_plot_output_fb.fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
 
 # %%
 # %%
-get_KPI(ms_sys_output_fb, 'MSM (state feedback)')
-get_KPI(ss_sys_output_fb, 'SSM (state feedback)')
+print(get_KPI_from_sys(ms_sys_output_fb, 'MSM (state feedback)'))
+print(get_KPI_from_sys(ss_sys_output_fb, 'SSM (state feedback)'))
 
 # %% [markdown]
 """
@@ -551,11 +565,21 @@ and investigate the closed-loop cost and the constraint violation.
 def run_meta_analysis(x0_list: List[np.ndarray], controller: Union[smpc.MultiStepSMPC, smpc.StateSpaceSMPC], N_steps: int):
     res = []
 
-    for x0_k in x0_list:
-        sys_k = get_prepared_sys(controller.sid_model, x0=x0_k)
-        _ = run_closed_loop(controller, sys_k, N_steps)
+    n_tests = len(x0_list)
 
-        res.append(sys_k)
+    for k,x0_k in enumerate(x0_list):
+        sys_k = get_prepared_sys(controller.sid_model, x0=x0_k)
+        closed_loop_k = run_closed_loop(controller, sys_k, N_steps)
+
+        res_k = {
+            'y': sys_k.y,
+            'u': sys_k.u,
+            'success': closed_loop_k,
+        }
+
+        res.append(res_k)
+
+        helper.print_percent_done(k, n_tests, title='Sampling data...')
 
     return res
 
@@ -567,13 +591,20 @@ and setup the different variants of the tested controllers in a nested dict.
 
 
 # %%
-n_cases = 10
-N_steps_closed_loop = 30
+n_cases = 50
+N_steps_closed_loop = 40
 
 np.random.seed(99)
 
-x0_test_arr = np.random.uniform(cstr.CSTR_SAMPLE_BOUNDS['x_lb'], cstr.CSTR_SAMPLE_BOUNDS['x_ub'], size=(4, n_cases))
+# The samble bounds from the system identification may lead to samples that start too close
+# to the constraint boundary. Therefore, we sample from a smaller range.
+x_lb_sample = np.array([0.4, 0.4, 110., 110.]).reshape(-1,1)
+x_ub_sample = np.array([1.3, 1.3, 130., 130.]).reshape(-1,1)
+
+x0_test_arr = np.random.uniform(x_lb_sample, x_ub_sample, size=(4, n_cases))
 x0_test = np.split(x0_test_arr, n_cases, axis=1)
+
+# %%
 pd.DataFrame(x0_test_arr.T, columns=['cA', 'cB', 'TR', 'TK'])
 
 # %%
@@ -585,17 +616,6 @@ test_dict_cont_chance_cons = {
     'State-feedback': {
         'MSM': get_controller(msm_state_fb, chance_cons=True),
         'SSM': get_controller(ssm_state_fb, chance_cons=True),
-    }
-}
-
-test_dict_cont_determ_cons = {
-    'Output-feedback': {
-        'MSM': get_controller(msm_output_fb, chance_cons=False),
-        'SSM': get_controller(ssm_output_fb, chance_cons=False)
-    },
-    'State-feedback': {
-        'MSM': get_controller(msm_state_fb, chance_cons=False),
-        'SSM': get_controller(ssm_state_fb, chance_cons=False),
     }
 }
 
@@ -623,12 +643,26 @@ def recursive_meta_eval(test_dict: dict, func: Callable):
 
     return result_dict
 
+
 # %%
-res_chance_cons = recursive_meta_eval(test_dict_cont_chance_cons, lambda x: run_meta_analysis(x0_test, x, N_steps_closed_loop))
-res_determ_cons = recursive_meta_eval(test_dict_cont_determ_cons, lambda x: run_meta_analysis(x0_test, x, N_steps_closed_loop))
+savepath = os.path.join('smpc_results')
+savename = 'cstr_smpc_closed_loop_results.pkl'
+overwrite = False
+
+if os.path.exists(os.path.join(savepath, savename)) and not overwrite:
+    print('Loading closed-loop results from file... make sure no settings have changed!')
+    with open(os.path.join(savepath, savename), 'rb') as f:
+        res_chance_cons = pickle.load(f)
+else:
+    print('Sampling closed-loop results... (this may take a while)')
+    res_chance_cons = recursive_meta_eval(test_dict_cont_chance_cons, lambda x: run_meta_analysis(x0_test, x, N_steps_closed_loop))
+
+    with open(os.path.join(savepath, savename), 'wb') as f:
+        pickle.dump(res_chance_cons, f)
+
 # %%
 df_dict_meta_chance_cons = recursive_meta_eval(res_chance_cons, lambda x: pd.DataFrame(map(get_KPI, x), columns=['product [mol]','max. cons. viol [K]']))
-df_dict_meta_determ_cons = recursive_meta_eval(res_determ_cons, lambda x: pd.DataFrame(map(get_KPI, x), columns=['product [mol]','max. cons. viol [K]']))
+# df_dict_meta_determ_cons = recursive_meta_eval(res_determ_cons, lambda x: pd.DataFrame(map(get_KPI, x), columns=['product [mol]','max. cons. viol [K]']))
 
 # %% [markdown]
 """
@@ -651,24 +685,19 @@ def pd_recursive_concat(pd_dict: dict):
     return result
 
 df_meta_chance_cons = pd_recursive_concat(df_dict_meta_chance_cons)
-df_meta_determ_cons = pd_recursive_concat(df_dict_meta_determ_cons)
 # %%
 df_meta_chance_cons
 
 # %%
-df_meta_determ_cons
+
 # %%
 
-class RV:
-    def __init__(self, arr):
-        self.mean = np.mean(arr)
-        self.std = np.std(arr)
+def mean_std(x):
+        return '{:.2f}+-{:.2f}'.format(x.mean(),x.std())
 
-    def __str__(self):
-        return f'{self.mean:.2f} +- {self.std:.2f}'
-# %%
+df_meta_chance_cons_agglom = pd.DataFrame(df_meta_chance_cons.apply(mean_std, result_type='expand'))
 
-df_meta_chance_cons_agglom = pd.DataFrame(df_meta_chance_cons.apply(RV, result_type='expand'))
+df_meta_chance_cons_agglom
 
 # %%
 tex_str = df_meta_chance_cons_agglom.to_latex()
@@ -682,7 +711,7 @@ tex_str_list.pop(-3)
 tex_str =  '\n'.join(tex_str_list)
 
     
-savepath = os.path.join('..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'tables')
+savepath = os.path.join('..', '..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'tables')
 savename = 'cstr_closed_loop_comparison.tex'
 
 with open(os.path.join(savepath, savename), 'w') as f:
