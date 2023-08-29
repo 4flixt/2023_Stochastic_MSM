@@ -685,9 +685,9 @@ if __name__ == '__main__':
         # column_format='p{2.5cm}'+'X'*(len(df.columns)),
     )
 
-    tex_str = tex_str.replace('sum\\_of\\_control\\_action', r'$\sum_i Q_i$ [kWh]')
-    tex_str = tex_str.replace('cons\\_viol\\_perc', r'cons. viol. [\%]')
-    tex_str = tex_str.replace('+-', r'$\pm$')
+    tex_str = tex_str.replace(r'sum_of_control_action', r'$\sum_i Q_i$ [kWh]')
+    tex_str = tex_str.replace(r'cons_viol_perc', r'cons. viol. [\%]')
+    tex_str = tex_str.replace(r'+-', r'$\pm$')
 
 
     tex_str_list = tex_str.split('\n')
