@@ -43,13 +43,17 @@ def get_train_test_data(state_feedback: bool = False):
 
     if state_feedback:
         T_ini = 1
+        # C_A, C_B, T_R, T_K
+        sig_y = np.array([.01, .01, .5, .5])
     else:
         T_ini = 3
+        # C_B, T_R
+        sig_y = np.array([.01, .5])
 
     settings = {
         'N': 20,
         'T_ini': T_ini,
-        'train_samples': 200,
+        'train_samples': 400,
         'test_samples': 100, 
         'state_feedback': state_feedback,
     }
@@ -57,6 +61,7 @@ def get_train_test_data(state_feedback: bool = False):
     sys_generator = sid.SystemGenerator(
         sys_type=sid.SystemType.CSTR,
         dt= cstr.T_STEP_CSTR,
+        sig_y = sig_y,
         case_kwargs={'state_feedback': settings['state_feedback']},
     )
 
@@ -281,7 +286,7 @@ fig.tight_layout()
 
 savepath = os.path.join('..', '..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
 savename = 'cstr_boxplot_lpd_state_vs_output_feeback'
-fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
+# fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
 
 # %% [markdown]
 # # Save the models and table with KPI
