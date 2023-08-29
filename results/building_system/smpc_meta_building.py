@@ -397,7 +397,7 @@ if __name__ == '__main__':
     sid_res = load_sid_results(sid_result_file_name)
 
     smpc_settings = smpc.base.SMPCSettings(
-        prob_chance_cons=.99,
+        prob_chance_cons=.999,
         with_cov=True,
     )
     smpc_settings.surpress_ipopt_output()
@@ -465,10 +465,10 @@ if __name__ == '__main__':
     """
     # %%
 
-    sid_res = load_sid_results(sid_result_file_name)
+    # sid_res = load_sid_results(sid_result_file_name)
 
     smpc_settings = smpc.base.SMPCSettings(
-        prob_chance_cons=.99,
+        prob_chance_cons=.999,
         with_cov=True,
     )
     smpc_settings.surpress_ipopt_output()
