@@ -71,7 +71,7 @@ def setup_controller(
     controller.set_chance_cons(expr =  y, ub = 25)
     controller.set_chance_cons(expr = -y, ub = -18)
     # y[0]-y[1] >= 1
-    # controller.set_chance_cons(expr =  -y[0]+y[1], ub = -1)
+    controller.set_chance_cons(expr =  -y[0]+y[1], ub = -1)
 
     controller.setup()
 
@@ -307,6 +307,53 @@ def plot_closed_loop_trajectory(
 
     return fig, ax, lines
 
+def plot_closed_loop_cons_detail(
+        closed_loop_res: sid.DataGenerator,
+        controller: Union[smpc.StateSpaceSMPC, smpc.MultiStepSMPC],
+        fig_ax: Optional[Tuple[plt.figure, plt.axis]] = None,
+        with_annotations: bool = True
+        )-> Tuple[plt.figure, plt.axis, Dict[str, plt.Line2D]]:
+
+    if fig_ax is None:
+        fig, ax = plt.subplots(1,1, figsize=(plotconfig.columnwidth, plotconfig.columnwidth))
+    else:
+        fig, ax = fig_ax
+
+
+    lines = {}
+    lines['y_samples'] = []
+    for sim_res_k in closed_loop_res.sim_results:
+        lines['y_samples'].append(ax.plot(sim_res_k.y[:,1], sim_res_k.y[:,0],color=plotconfig.colors[0], alpha=1/len(closed_loop_res.sim_results))[0])
+    ax.plot([], [], color=plotconfig.colors[0], label=r'$\vy_{[0,k]}$', alpha=1)
+    lines['y_pred'] = ax.plot(controller.res_y_pred[:,1], controller.res_y_pred[:,0], color=plotconfig.colors[1], label=r'$\hat\vy_{[k+1,k+N]}$')
+
+    cons_1 = np.linspace(17.8, 20, 5)
+    ax.plot(cons_1, cons_1+1, color='k', linestyle='--', label='constraint')
+    ax.axvline(18, color='k', linestyle='--')
+
+    cov0 = controller.opt_aux_num['Sigma_y_pred'][:2,:2].full()
+    covN = controller.opt_aux_num['Sigma_y_pred'][-4:-2,-4:-2].full()
+
+    e2=helper.plot_cov_as_ellipse(controller.res_y_pred[-1,1], controller.res_y_pred[-1,0], covN,
+        ax=ax, n_std=controller.cp, edgecolor=plotconfig.colors[2], facecolor=plotconfig.colors[2], alpha=0.3
+        )
+    e1=helper.plot_cov_as_ellipse(controller.res_y_pred[0,1], controller.res_y_pred[0,0], cov0,
+        ax=ax, n_std=controller.cp, edgecolor=plotconfig.colors[1], facecolor=plotconfig.colors[1], alpha=0.3
+        )
+    # ax.set_ylim(19, 21)
+    # ax.set_xlim(17.5, 19.5)
+
+    lines['cov0'] = e1
+    lines['covN'] = e2
+
+    if with_annotations:
+        e1.set_label('$p(T_1,T_2)$ at $t=k$')
+        e2.set_label('$p(T_1,T_2)$ at $t=k+N$')
+        ax.set_xlabel('$T_2$ [$^\circ$C]')
+        ax.set_ylabel('$T_1$ [$^\circ$C]')
+        ax.legend()
+
+    return fig, ax, lines
 
 # %% [markdown]
 """
@@ -343,6 +390,7 @@ def get_closed_loop_kpis(
 """
 # %% 
 if __name__ == '__main__':
+    np.random.seed(99)
 
     sid_result_file_name = 'sid_building_tini_3_n_12.pkl'
 
@@ -390,8 +438,8 @@ if __name__ == '__main__':
     np.random.seed(99)
 
     savepath = os.path.join('smpc_results')
-    savename = 'ms_smpc_closed_loop_results_with_cov.pkl'
-    overwrite = True
+    savename = 'ms_smpc_closed_loop_results_with_cov_50.pkl'
+    overwrite = False
         
     if os.path.exists(os.path.join(savepath, savename)) and not overwrite:
         print('Loading closed-loop results from file... make sure no settings have changed!')
@@ -399,7 +447,7 @@ if __name__ == '__main__':
             closed_loop_ms = pickle.load(f)
     else:
         print('Sampling closed-loop results... (this may take a while)')
-        closed_loop_ms = sample_closed_loop(ms_smpc, sid_res, n_samples = 2, N_horizon=50, reference_sys=ref_sys)
+        closed_loop_ms = sample_closed_loop(ms_smpc, sid_res, n_samples = 50, N_horizon=50, reference_sys=ref_sys)
 
         with open(os.path.join(savepath, savename), 'wb') as f:
             pickle.dump(closed_loop_ms, f)
@@ -407,6 +455,7 @@ if __name__ == '__main__':
     # %%
 
     _ = plot_closed_loop_trajectory(closed_loop_ms)
+    _ = plot_closed_loop_cons_detail(closed_loop_ms, ms_smpc)
     get_closed_loop_kpis(closed_loop_ms, ms_smpc).mean()
     # %%
 
@@ -453,7 +502,7 @@ if __name__ == '__main__':
     np.random.seed(99)
 
     savepath = os.path.join('smpc_results')
-    savename = '04_ss_smpc_closed_loop_results_with_cov.pkl'
+    savename = 'ss_smpc_closed_loop_results_with_cov_50.pkl'
     overwrite = True
 
     if os.path.exists(os.path.join(savepath, savename)) and not overwrite:
@@ -462,13 +511,14 @@ if __name__ == '__main__':
             closed_loop_ss = pickle.load(f)
     else:
         print('Sampling closed-loop results... (this may take a while)')
-        closed_loop_ss = sample_closed_loop(ss_smpc, sid_res, n_samples = 2, N_horizon=50, reference_sys=ref_sys)
+        closed_loop_ss = sample_closed_loop(ss_smpc, sid_res, n_samples = 50, N_horizon=50, reference_sys=ref_sys)
 
         with open(os.path.join(savepath, savename), 'wb') as f:
             pickle.dump(closed_loop_ss, f)
     # %%
 
     _ = plot_closed_loop_trajectory(closed_loop_ss)
+    _ = plot_closed_loop_cons_detail(closed_loop_ss, ss_smpc)
     get_closed_loop_kpis(closed_loop_ss, ss_smpc).mean()
     # %%
 
@@ -603,9 +653,9 @@ if __name__ == '__main__':
     _,_,lines_ss = plot_closed_loop_cons_detail(closed_loop_ms_wo_cov, ms_smpc_wo_cov, fig_ax=(fig, ax[1]), with_annotations=False)
     ax[0].axis('equal')
     ax[1].axis('equal')
-    ax[0].set_ylim(18, 21)
-    ax[1].set_ylim(18.5, 21.5)
-    ax[0].set_xlim(17.5, 20.5)
+    ax[0].set_ylim(18, 22)
+    ax[1].set_ylim(18, 22)
+    ax[0].set_xlim(17.5, 21.5)
 
     ax[0].set_title('MSM-SMPC w. full covariance estimation')
     ax[1].set_title('MSM-SMPC w. only variance estimation')
@@ -614,8 +664,8 @@ if __name__ == '__main__':
     ax[1].set_ylabel('temp. room $T_1$ [°C]')
     ax[1].set_xlabel('temp. room $T_2$ [°C]')
 
-    lines_ms['cov0'].set_label('$\hat\mSigma_{r,k+1}$')
-    lines_ms['covN'].set_label('$\hat\mSigma_{r,k+N}$')
+    lines_ms['cov0'].set_label('$\hat\mSigma_{y,k+1}$')
+    lines_ms['covN'].set_label('$\hat\mSigma_{y,k+N}$')
 
     ax[1].annotate(r'$T_1 - T_2 \geq 1$', xy=(19, 20), xytext=(19.5, 19.5), arrowprops=dict(facecolor='black', shrink=0.05, width=.1, headwidth=4, headlength=3))
 
