@@ -94,15 +94,15 @@ def get_controller( model: Union[sid.MultistepModel, sid.StateSpaceModel], chanc
 
     du = uk - up
 
-    stage_cost = 1e-1*du[0]**2 + 1e-4*du[1]**2
+    stage_cost = 1e-2*du[0]**2 + 1e-2*du[1]**2
 
     if model.n_y == 4:
         print('Model with 4 outputs (state feedback)')
-        stage_cost+= -yk[1]*uk[0] # maximize c_b * F (product yield)
+        stage_cost+= -yk[1]#*uk[0] # maximize c_b * F (product yield)
         T_R_ind = 2
     if model.n_y == 2:
         print('Model with 2 outputs (output feedback)')
-        stage_cost += -yk[0]*uk[0] # maximize c_a * F (product yield)
+        stage_cost += -yk[0]#*uk[0] # maximize c_a * F (product yield)
         T_R_ind = 1
 
     stage_cost_fun = cas.Function('stage_cost', [yk, uk, up, yset], [stage_cost])
@@ -544,7 +544,7 @@ comp_cl_plot_output_fb.draw_frame(40)
 # %%
 
 savepath = os.path.join('..', '..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
-savename = 'cstr_closed_loop_output_feedback_msm_vs_ssm'
+savename = '02_cstr_closed_loop_output_feedback_msm_vs_ssm'
 comp_cl_plot_output_fb.fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
 
 # %%
@@ -646,7 +646,7 @@ def recursive_meta_eval(test_dict: dict, func: Callable):
 
 # %%
 savepath = os.path.join('smpc_results')
-savename = 'cstr_smpc_closed_loop_results.pkl'
+savename = '02_cstr_smpc_closed_loop_results.pkl'
 overwrite = False
 
 if os.path.exists(os.path.join(savepath, savename)) and not overwrite:
