@@ -286,7 +286,7 @@ fig.tight_layout()
 
 savepath = os.path.join('..', '..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
 savename = 'cstr_boxplot_lpd_state_vs_output_feeback'
-# fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
+fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
 
 # %% [markdown]
 # # Save the models and table with KPI
