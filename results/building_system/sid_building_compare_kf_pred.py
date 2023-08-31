@@ -34,7 +34,7 @@ blrsmpc.plotconfig.config_mpl(os.path.join('..', '..', 'blrsmpc', 'plotconfig', 
 
 # Initial state mean and covariance
 # Used for sampling and for the KF
-sigma_x0 = np.array([2,2,2,2,5])
+sigma_x0 = np.array([3,3,3,3,5])
 x0_bar = np.array([20,20,20,20,15])
 
 def get_x0() -> np.ndarray:
@@ -93,7 +93,7 @@ msm_settings = {
     'estimate_covariance': True,
     'scale_x': True,
     'scale_y': True,
-    'add_bias': True,
+    'add_bias': False,
     'type': 'mle'
 }
 
@@ -159,8 +159,10 @@ label_list =['$T_1$ [$^\circ$C]', '$T_2$ [$^\circ$C]', '$T_3$ [$^\circ$C]', '$T_
 
 def plot_correlation(ax, mean, cov, **kwargs):
     # m_x = m_y = 0
-    for i in range(data_test.n_y):
-        for j in range(data_test.n_y):
+    n_y = mean.shape[0]
+
+    for i in range(n_y):
+        for j in range(n_y):
             if i<j:
                 ax[i,j].axis('off')
                 continue
@@ -182,57 +184,58 @@ def plot_correlation(ax, mean, cov, **kwargs):
 # ### Final plot for the results
 
 # %%
+sub_set = [0,1,4]
+n_sub = len(sub_set)
 
-gridspec_dict = {'width_ratios': [5,1,1,1,1,1]}
-figsize = (blrsmpc.plotconfig.textwidth, blrsmpc.plotconfig.textwidth/2.5)
-fig, ax = plt.subplots(data_test.n_y, data_test.n_y + 1,figsize=figsize, dpi=300, gridspec_kw=gridspec_dict)
+gridspec_dict = {'width_ratios': [5]+[1]*n_sub}
+figsize = (blrsmpc.plotconfig.textwidth, blrsmpc.plotconfig.textwidth/3)
+fig, ax = plt.subplots(n_sub, n_sub + 1,figsize=figsize, dpi=300, gridspec_kw=gridspec_dict)
+
 
 
 t = data_test.sim_results[0].time[T_ini:]/3600
-for i in range(data_test.n_y):
+for k,i in enumerate(sub_set):
 
-    ax[i,0].plot(t, y_tru_pred[:,i], '-', linewidth=2, label="true", color=colors[0])
-    ax[i,0].fill_between(t, y_tru_pred[:,i]-3*y_tru_pred_std[:,i], y_tru_pred[:,i]+3*y_tru_pred_std[:,i], alpha=0.3, color=colors[0])
-    ax[i,0].plot(t, msm_mlarge_pred['mean'][:,i], '-', linewidth=1, label="MSM", color=colors[1])
-    ax[i,0].plot(t, msm_mlarge_pred['mean'][:,i]+3*msm_mlarge_pred['std'][:,i], '--', linewidth=1, label="MSM", color=colors[1])
-    ax[i,0].plot(t, msm_mlarge_pred['mean'][:,i]-3*msm_mlarge_pred['std'][:,i], '--', linewidth=1, label="MSM", color=colors[1])
-    ax[i,0].plot(t, msm_mlow_pred['mean'][:,i], '-', linewidth=1, label="MSM", color=colors[2])
-    ax[i,0].plot(t, msm_mlow_pred['mean'][:,i]+3*msm_mlow_pred['std'][:,i], '--', linewidth=1, label="MSM", color=colors[2])
-    ax[i,0].plot(t, msm_mlow_pred['mean'][:,i]-3*msm_mlow_pred['std'][:,i], '--', linewidth=1, label="MSM", color=colors[2])
-    if i<data_test.n_y-1:
-        ax[i,0].set_xticklabels([])
+    ax[k,0].plot(t, y_tru_pred[:,i], '-', linewidth=1, label="true", color=colors[0])
+    ax[k,0].fill_between(t, y_tru_pred[:,i]-3*y_tru_pred_std[:,i], y_tru_pred[:,i]+3*y_tru_pred_std[:,i], alpha=0.3, color=colors[0])
+    ax[k,0].plot(t, msm_mlarge_pred['mean'][:,i], '-', linewidth=1, label="MSM", color=colors[1])
+    ax[k,0].plot(t, msm_mlarge_pred['mean'][:,i]+3*msm_mlarge_pred['std'][:,i], '--', linewidth=1, label="MSM", color=colors[1])
+    ax[k,0].plot(t, msm_mlarge_pred['mean'][:,i]-3*msm_mlarge_pred['std'][:,i], '--', linewidth=1, label="MSM", color=colors[1])
+    ax[k,0].plot(t, msm_mlow_pred['mean'][:,i], '-', linewidth=1, label="MSM", color=colors[2])
+    ax[k,0].plot(t, msm_mlow_pred['mean'][:,i]+3*msm_mlow_pred['std'][:,i], '--', linewidth=1, label="MSM", color=colors[2])
+    ax[k,0].plot(t, msm_mlow_pred['mean'][:,i]-3*msm_mlow_pred['std'][:,i], '--', linewidth=1, label="MSM", color=colors[2])
+    if i<n_sub-1:
+        ax[k,0].set_xticklabels([])
 
-    ax[i,0].set_ylabel(label_list[i])
-    ax[-1,i+1].set_xlabel(label_list[i])
+    ax[k,0].set_ylabel(label_list[i])
+    ax[-1,k+1].set_xlabel(label_list[i])
 
 ax[-1,0].set_xlabel('Time [h]')
 
 
+sub_idx = np.ix_(sub_set, sub_set)
 corr_ax = ax[:, 1:]
-plot_correlation(corr_ax, test_sys.y[-1], test_sys.P_y[-1], facecolor=colors[0], alpha=.3)
-plot_correlation(corr_ax, msm_mlarge_pred['mean'][-1], msm_mlarge_pred['cov'][-5:,-5:], edgecolor=colors[1], linestyle='--', linewidth=1)
-plot_correlation(corr_ax, msm_mlow_pred['mean'][-1], msm_mlow_pred['cov'][-5:,-5:], edgecolor=colors[2], linestyle='--', linewidth=1)
-ax[0,-1].plot([],[], linewidth=0, label="True")
+plot_correlation(corr_ax, test_sys.y[-1, sub_set], test_sys.P_y[-1][sub_idx], facecolor=colors[0], alpha=.3)
+plot_correlation(corr_ax, msm_mlarge_pred['mean'][-1, sub_set], msm_mlarge_pred['cov'][-5:,-5:][sub_idx], edgecolor=colors[1], linestyle='--', linewidth=1)
+plot_correlation(corr_ax, msm_mlow_pred['mean'][-1, sub_set], msm_mlow_pred['cov'][-5:,-5:][sub_idx], edgecolor=colors[2], linestyle='--', linewidth=1)
+ax[0,-1].plot([],[], linewidth=0, label=r"\textbf{True}")
 ax[0,-1].plot([],[], linewidth=2, color=colors[0], label="mean")
 ax[0,-1].fill_between([],[],[], color=colors[0], label="$\pm 3\sigma$", alpha=0.3)
-ax[0,-1].plot([],[], linewidth=0, label=r"MSM$_{a}$")
+ax[0,-1].plot([],[], linewidth=0, label=r"\textbf{MSM}$_{a}$")
 ax[0,-1].plot([],[], linewidth=1, color=colors[1], label="mean")
 ax[0,-1].plot([],[], '--', linewidth=1, color=colors[1], label="$\pm 3\sigma$")
-ax[0,-1].plot([],[], linewidth=0, label=r"MSM$_{b}$")
+ax[0,-1].plot([],[], linewidth=0, label=r"\textbf{MSM}$_{b}$")
 ax[0,-1].plot([],[], linewidth=1, color=colors[2], label="mean")
 ax[0,-1].plot([],[], '--', linewidth=1, color=colors[2], label="$\pm 3\sigma$")
 
 fig.align_ylabels()
 fig.tight_layout(pad=0)
 
-ax[0,-1].legend(loc='upper right', ncol=3, bbox_to_anchor=(1.0, 1.2))
+ax[0,-1].legend(loc='upper right', ncol=1, bbox_to_anchor=(1.03, 1.25))
 ax[0,0].set_title(r'Multi-step prediction $p(\hat\vy_{[1,N]})$')
-ax[0,3].set_title('Joint distribution $p(T_i,T_j)$ at $t=12$ h')
+ax[0,n_sub//2+1].set_title('Joint distribution $p(T_i,T_j)$ at $t=12$ h')
 
 savepath = os.path.join('..', '..', '..', '2023_CDC_L-CSS_Paper_Stochastic_MSM', 'figures')
 savename = 'sid_building_compare_kf_pred'
 fig.savefig(os.path.join(savepath, savename + '.pgf'), bbox_inches='tight', format='pgf')
 
-
-
-# %%
