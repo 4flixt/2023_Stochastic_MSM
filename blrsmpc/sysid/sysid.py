@@ -2,21 +2,24 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-import scipy.io as sio
+import scipy
 from scipy.signal import cont2discrete
 from casadi import *
 from casadi.tools import *
 from typing import Union, List, Dict, Tuple, Optional, Callable
 from dataclasses import dataclass
 from enum import Enum, auto
+import pdb
 
 from blrsmpc import system
-from blrsmpc.sysid import bayli
+from blrsmpc.sysid import bayli, mle
 from blrsmpc import helper
+
 # %%
 class SystemType(Enum):
     TRIPLE_MASS_SPRING = auto()
     BUILDING = auto()
+    CSTR = auto()
 
 class SystemGenerator:
     """ Used to configure a system and generate new instances of it.
@@ -52,13 +55,47 @@ class SystemGenerator:
 
         return sys
 
-    def building_system(self, x0=None, state_feedback=True):
-        A, B, C = system.building_system.get_ABC()
+    def cstr(self, x0=None, state_feedback=False) -> system.System:
+        cstr_model = system.cstr.get_CSTR_model()
+        cstr_sim = system.cstr.get_CSTR_simulator(cstr_model)
 
+        def rhs_func(x: np.ndarray, u:np.ndarray) -> np.ndarray:
+            cstr_sim.x0 = x
+            
+            x_next = cstr_sim.make_step(u)
+
+            return x_next
+
+        def meas_func(x: np.ndarray, u:np.ndarray) -> np.ndarray:
+
+            if state_feedback:
+                y = x
+            else:
+                C_B_ind = 1
+                T_R_ind = 2
+                y = x[[C_B_ind, T_R_ind]]
+
+            return y
+        
+        if x0 is None:
+            x0 = np.random.uniform(system.cstr.CSTR_SAMPLE_BOUNDS['x_lb'], system.cstr.CSTR_SAMPLE_BOUNDS['x_ub'])
+        
+        sys = system.System(rhs_func, meas_func, x0=x0, u0=np.zeros((2,1)), sig_x=self.sig_x, sig_y=self.sig_y, dt=self.dt)
+
+        return sys
+
+    def building_system(self, x0=None, state_feedback=True):
+        A, B, C = system.building_system.get_ABC(self.dt)
+
+        if isinstance(x0, Callable):
+            x0 = x0()
         if x0 is None:
             t_build = np.random.uniform(14,27, size=(4,1))
             to = np.random.uniform(0,30, size=(1,1))
             x0 = np.concatenate([t_build, to], axis=0)
+
+        assert isinstance(x0, np.ndarray), 'x0 must be a numpy array.'
+        assert x0.shape == (A.shape[0], 1), 'x0 must have shape (n_x, 1).'
 
         if not state_feedback:
             C = np.array([
@@ -73,11 +110,13 @@ class SystemGenerator:
         return sys
 
 
-    def __call__(self):
+    def __call__(self) -> system.System:
         if self.sys_type == SystemType.TRIPLE_MASS_SPRING:
             return self.triple_mass_spring(**self.case_kwargs)
         elif self.sys_type == SystemType.BUILDING:
             return self.building_system(**self.case_kwargs)
+        elif self.sys_type == SystemType.CSTR:
+            return self.cstr(**self.case_kwargs)
         else:
             raise NotImplementedError('Unknown system type.')
 
@@ -135,7 +174,7 @@ class InputFromSequence:
 
     def __call__(self, x: Optional[np.ndarray] = None, t: Optional[float] = None):
         if self.infinite_loop: 
-            k = int(mod(self.running_index, self.m))
+            k = int(np.mod(self.running_index, self.m))
         elif self.running_index < self.m:
             k = self.running_index
         else:
@@ -232,16 +271,15 @@ class DataGenerator:
 class MultistepModel:
     def __init__(
             self,
+            type = 'mle',
             **kwargs
         ):
-        # Bias cannot be estimated.
-        kwargs.update(add_bias=False)
-        self.blr = bayli.BayesianLinearRegression(
-            **kwargs
-        )
-
-        # if self.blr.scale_x or self.blr.scale_y or self.blr.add_bias:
-        #     raise ValueError('Multi-step model does not support BLR with scaling or bias.')
+        if type == 'mle':
+            self.blr = mle.MLE(**kwargs)
+        elif type == 'blr':
+            self.blr = bayli.BayesianLinearRegression(
+                **kwargs
+            )
 
     def get_sparsity(self, data: DataGenerator):
         mat_sparsity_sigma_e = np.kron(np.eye(data.setup.N), np.tril(np.ones((data.n_y, data.n_y)))) == 1
@@ -253,6 +291,11 @@ class MultistepModel:
         sparsity_matrix_T_ini = np.kron(np.ones((data.setup.N, data.setup.T_ini)), np.ones((data.n_y, data.n_u+data.n_y))).astype(bool)
         sparsity_matrix_N = np.kron(np.tril(np.ones((data.setup.N, data.setup.N))), np.ones((data.n_y, data.n_u))).astype(bool)
         sparsity_matrix = np.concatenate((sparsity_matrix_T_ini, sparsity_matrix_N), axis=1).astype(bool)
+
+        if self.blr.add_bias:
+            sparsity_matrix_bias = np.kron(np.ones((data.setup.N, 1)), np.ones((data.n_y, 1))).astype(bool)
+            sparsity_matrix = np.concatenate((sparsity_matrix, sparsity_matrix_bias), axis=1).astype(bool)
+
         sparsity_matrix = sparsity_matrix.T
 
         srow, scol = np.where(sparsity_matrix)
@@ -277,16 +320,15 @@ class MultistepModel:
 class StateSpaceModel:
     def __init__(
             self,
+            type = 'mle',
             **kwargs
-            ):
-        # Bias cannot be estimated.
-        kwargs.update(add_bias=False)
-        self.blr = bayli.BayesianLinearRegression(
-            **kwargs
+        ):
+        if type == 'mle':
+            self.blr = mle.MLE(**kwargs)
+        elif type == 'blr':
+            self.blr = bayli.BayesianLinearRegression(
+                **kwargs
             )
-
-        # if self.blr.scale_x or self.blr.scale_y or self.blr.add_bias:
-        #     raise ValueError('State space model does not support BLR with scaling or bias.')
 
     def fit(self, data: DataGenerator):
 
@@ -300,14 +342,63 @@ class StateSpaceModel:
         y0 = np.zeros((data.n_y, 1))
         u0 = np.zeros((data.n_u, 1))
 
-        arx = system.ARX(self.blr.W.T, l=self.data_setup.T_ini, y0=y0, u0=u0, dt=self.data_setup.dt)
+        W, W0 = self._include_scaling_and_bias()
+
+        arx = system.ARX(W, W0=W0, l=self.data_setup.T_ini, y0=y0, u0=u0, dt=self.data_setup.dt)
         self.LTI = arx.convert_to_state_space()
 
     def predict(self, *args, **kwargs):
         return self.blr.predict(*args, **kwargs)
+    
+    def _include_scaling_and_bias(self) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Returns the BLR weights and bias with scaling and bias included.
+
+        ::
+
+            x_scaled = (x - x_mean) / x_scale
+            y_scaled = W.T @ x_scaled + b 
+            y = y_scaled * y_scale + y_mean
+
+            y = W.T @ (x - x_mean) / x_scale * y_scale + y_mean + b*y_scale
+            y = y_scale / x_scale * W.T @ x + (y_mean - y_scale / x_scale * W.T @ x_mean + b*y_scale)
+
+        Returns:
+            Weights and bias
+
+        """
+
+        W = self.blr.W.T
+
+        if self.blr.add_bias:
+            W = W[:, :-1]
+            W0 = W[:, -1].reshape(-1,1)
+        else:
+            W0 = np.zeros((self.blr.n_y, 1))
+
+        n_x = W.shape[1]
+
+        if self.blr.scale_x:
+            S_x_inv = np.diag(1 / self.blr.scaler_x.scale_)
+            m_x = self.blr.scaler_x.mean_.reshape(-1,1)
+        else:
+            S_x_inv = np.eye(n_x)
+            m_x = np.zeros((n_x, 1))
+
+        if self.blr.scale_y:
+            S_y = np.diag(self.blr.scaler_y.scale_)
+            m_y = self.blr.scaler_y.mean_.reshape(-1,1)
+        else:
+            S_y = np.eye(self.blr.n_y)
+            m_y = np.zeros((self.blr.n_y, 1))
+
+        W = S_y @ W @ S_x_inv
+        W0 = m_y - W @ m_x + S_y @ W0
 
 
-    def predict_sequence(self, m, **kwargs):
+        return W, W0
+
+    def predict_sequence(self, m, uncert_type: str = 'std', **kwargs):
         """ Harmonized interface with MSM."""
 
         number_input_predictions = (self.data_setup.N+1 )* self.n_u
@@ -323,13 +414,17 @@ class StateSpaceModel:
             arx_in = np.concatenate((self.LTI.x0, u), axis=0)
             _, Q = self.predict(arx_in.T, uncert_type='cov', **kwargs)
 
-            self.LTI.make_step(u, Q, E=self.LTI.C.T, R=None)
+            self.LTI.make_step(u, Q=Q, E=self.LTI.C.T, R=None)
 
         x_seq = self.LTI.x[1:] # Remove initial condition
         P_seq = self.LTI.P_y[1:] # Remove initial condition
         C = self.LTI.C
 
         y = x_seq@C.T
-        std = np.sqrt((np.diagonal(P_seq, axis1=1, axis2=2)))
 
-        return y, std
+        if uncert_type == 'cov':
+            cov = scipy.linalg.block_diag(*P_seq)
+            return y, cov
+        elif uncert_type == 'std':
+            std = np.sqrt((np.diagonal(P_seq, axis1=1, axis2=2)))
+            return y, std

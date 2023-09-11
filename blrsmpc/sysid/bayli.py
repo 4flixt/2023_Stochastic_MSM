@@ -310,17 +310,19 @@ class BayesianLinearRegression:
         if with_noise_variance:
             Sigma_y += np.kron(self.Sigma_e, np.eye(m_t))   # Add noise variance to Sigma_y
 
+        if self.scale_y and not return_scaled:
+            S_y =np.diag(self.scaler_y.scale_) 
+            Sigma_y =  S_y@Sigma_y@S_y.T 
+
         if uncert_type == 'std':
             y_std = np.sqrt(np.diag(Sigma_y)).reshape(-1, self.n_y, order='F')
-            if self.scale_y and not return_scaled:
-                y_std = self.scaler_y.scale_ * y_std
-
             return (y_pred, y_std) 
-        elif uncert_type == 'cov':
-            if self.scale_y and not return_scaled:
-                Sigma_y = self.scaler_y.var_ * Sigma_y
 
+        elif uncert_type == 'cov':
             return (y_pred, Sigma_y)
+
+        else:
+            raise ValueError('uncert_type must be either "std" or "cov"')
 
 
     def mean(self, X: np.ndarray, return_scaled: bool = False) -> np.ndarray:

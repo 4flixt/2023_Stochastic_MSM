@@ -1,0 +1,5 @@
+*.gif filter=lfs diff=lfs merge=lfs -text
+results/building_system/sid_building_compare_kf_pred.ipynb filter=lfs diff=lfs merge=lfs -text
+results/building_system/sid_results/* filter=lfs diff=lfs merge=lfs -text
+results/building_system/smpc_results/* filter=lfs diff=lfs merge=lfs -text
+results/cstr/sid_results/* filter=lfs diff=lfs merge=lfs -text
